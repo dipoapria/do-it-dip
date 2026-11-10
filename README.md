@@ -6,7 +6,9 @@ Pencatat keuangan pribadi berbentuk PWA (Progressive Web App): dipasang di iPhon
 
 **Tampilan laptop:** di layar lebar (≥ 1024 px), aplikasi otomatis menjadi dashboard rekap: ringkasan, arus kas, komposisi pengeluaran (klik untuk detail kategori), kategori teratas, pengeluaran terbesar, catatan perencana keuangan, dan saldo per dompet, dalam mode Bulan atau Tahun. Tombol **Presentasi** membuka 5 slide layar penuh (← → untuk pindah, Esc untuk keluar). Tombol **Catat** membuka aplikasi versi HP sebagai panel di samping.
 
-**Berikutnya:** cadangan online otomatis (Tahap 2), impor mutasi bank, foto struk, anggaran, rekap kilat, buku Freelance/Usaha/Keluarga.
+**Foto struk & impor mutasi:** di layar Catat ada mode **Struk** (foto struk dibaca langsung di HP, total/toko/tanggal terisi otomatis) dan **Impor** (file mutasi CSV, Excel .xlsx, atau PDF, termasuk PDF bersandi; transaksi dikategorikan dan bisa diperiksa sebelum disimpan, yang sudah pernah tercatat ditandai). Status semua fitur ada di ROADMAP.md.
+
+**Berikutnya:** cadangan online otomatis, kunci PIN, rekap kilat, anggaran, transaksi berulang, buku Freelance/Usaha/Keluarga.
 
 ## Menjalankan di laptop
 
@@ -39,6 +41,8 @@ Semua data tersimpan di perangkat (IndexedDB). Sampai cadangan online hadir, eks
 |---|---|
 | `src/model.ts` | Tipe data, kategori, kata kunci, dompet bawaan |
 | `src/parser.ts` | Pembaca kalimat bahasa Indonesia + pewarnaan kata |
+| `src/receipt.ts`, `src/ocr.ts` | Foto struk: pembacaan teks di HP dan pengambilan total/toko/tanggal |
+| `src/statement.ts`, `src/filetext.ts`, `src/money-text.ts` | Impor mutasi: baca CSV/Excel/PDF, tebak jenis & kategori |
 | `src/store.ts` | Penyimpanan IndexedDB, cadangan ekspor/impor |
 | `src/stats.ts` | Rekap bulanan dan saldo |
 | `src/app.ts` | Seluruh tampilan dan animasi versi HP (dari mockup v2) |

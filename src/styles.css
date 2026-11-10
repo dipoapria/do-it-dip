@@ -328,11 +328,11 @@ h2.title{font-family:var(--f-display);font-weight:800;font-size:30px;letter-spac
 .icon-btn:active{transform:scale(.88) rotate(-90deg)}
 .co-body{flex:1;overflow-y:auto;overflow-x:hidden;padding:6px 18px calc(var(--sb) + 26px);scrollbar-width:none}
 .co-body::-webkit-scrollbar{display:none}
-.modes{position:relative;display:grid;grid-template-columns:repeat(2,1fr);gap:4px;padding:4px;border-radius:16px;background:var(--surface-2)}
-.modes button{position:relative;z-index:1;display:flex;align-items:center;justify-content:center;gap:8px;padding:10px 2px;border-radius:12px;font-size:12.5px;font-weight:700;color:var(--ink-2);text-align:center;transition:color .2s}
+.modes{position:relative;display:grid;grid-template-columns:repeat(4,1fr);gap:4px;padding:4px;border-radius:16px;background:var(--surface-2)}
+.modes button{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:8px 2px;border-radius:12px;font-size:11.5px;font-weight:700;color:var(--ink-2);text-align:center;transition:color .2s}
 .modes button.on{color:var(--ink)}
 .modes button.on svg{color:var(--brand);animation:wob .5s var(--spring)}
-.modes .pill{position:absolute;top:4px;bottom:4px;left:4px;width:calc((100% - 12px)/2);border-radius:12px;background:var(--surface);box-shadow:0 3px 10px -4px rgba(15,42,46,.35);transition:transform .5s var(--spring)}
+.modes .pill{position:absolute;top:4px;bottom:4px;left:4px;width:calc((100% - 20px)/4);border-radius:12px;background:var(--surface);box-shadow:0 3px 10px -4px rgba(15,42,46,.35);transition:transform .5s var(--spring)}
 .lab{display:block;font-size:12px;font-weight:700;color:var(--ink-3);margin:0 2px 8px}
 .nlbox{position:relative;border-radius:20px;background:var(--surface)}
 .nlf{display:block;width:100%;margin:0;border:1.5px solid var(--line);border-radius:20px;padding:14px 16px;font:600 17px/1.6 var(--f-body);letter-spacing:0;white-space:pre-wrap;word-wrap:break-word;overflow-wrap:break-word;min-height:112px}
@@ -647,3 +647,52 @@ body.desk.phone-open #app{display:block;position:fixed;z-index:41;right:40px;top
 .dk-pres-nav .dot.on{width:28px;border-radius:6px;background:var(--brand)}
 .dk-pres-nav .exit{width:auto;padding:0 14px;border-radius:999px;gap:6px;font-weight:800;font-size:13px;display:flex}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;animation-delay:0ms!important;transition-duration:.01ms!important}}
+
+/* ================= struk + impor ================= */
+.drop{border:1.5px dashed var(--ink-3);border-radius:20px;padding:20px 18px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:10px;color:var(--ink-2);line-height:1.5}
+.drop .ic{width:52px;height:52px;border-radius:18px}
+.drop small{font-size:12.5px}
+.drop .btn-row{margin-top:4px}
+.btn2.primaryish{color:#fff;background:linear-gradient(140deg,var(--brand),var(--brand-2));cursor:pointer;padding:13px 14px}
+label.btn2{cursor:pointer}
+.muted{color:var(--ink-3);font-size:12px}
+.spin-ic svg{animation:spin360 1.2s linear infinite}
+@keyframes spin360{to{transform:rotate(360deg)}}
+.st-img{position:relative;border-radius:18px;overflow:hidden;background:#000;max-height:360px;display:grid;place-items:center;margin-bottom:12px}
+.st-img img{display:block;max-width:100%;max-height:360px;object-fit:contain}
+.st-img.small{width:76px;height:96px;margin:0;flex:none;border-radius:12px}
+.st-img.small img{width:100%;height:100%;object-fit:cover}
+.st-img .scan{position:absolute;left:0;right:0;height:3px;top:0;background:var(--brand);box-shadow:0 0 16px 4px color-mix(in srgb,var(--brand) 70%,transparent);animation:scanY 1.2s ease-in-out infinite alternate}
+@keyframes scanY{to{top:calc(100% - 3px)}}
+.st-prog{display:flex;flex-direction:column;gap:8px;font-size:13px;font-weight:700;color:var(--ink-2);text-align:center}
+.st-prog .bar{height:8px;border-radius:8px;background:var(--surface-2);overflow:hidden}
+.st-prog .bar i{display:block;height:100%;border-radius:8px;background:linear-gradient(90deg,var(--brand),var(--brand-2));transition:width .3s}
+.st-done{display:flex;gap:12px;align-items:center;margin-bottom:14px}
+.amt-field{font:800 26px var(--f-display);font-variant-numeric:tabular-nums}
+.st-more{margin:4px 0 14px;border:1px solid var(--line);border-radius:14px;padding:10px 12px;background:var(--surface)}
+.st-more summary{font-weight:700;font-size:13px;cursor:pointer}
+.st-more pre{white-space:pre-wrap;word-break:break-word;font:12px/1.5 ui-monospace,Menlo,Consolas,monospace;color:var(--ink-2);margin:10px 0 0;max-height:260px;overflow:auto}
+.st-more .kv{font-size:12.5px;padding:8px 2px}
+.err-card{display:flex;gap:12px;padding:14px;border-radius:16px;background:color-mix(in srgb,var(--out) 10%,var(--surface));margin-bottom:12px}
+.err-card svg.lucide{color:var(--out);margin-top:2px}
+.err-card b{display:block}
+.err-card p{margin:3px 0 0;font-size:12.5px;line-height:1.5;color:var(--ink-2)}
+.imp-sum{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:4px 0 10px}
+.imp-sum b{display:block;font-size:14px}
+.imp-sum small{font-size:11.5px;color:var(--ink-3)}
+.imp-tot{display:flex;flex-direction:column;align-items:flex-end;font-weight:800;font-size:12.5px;font-variant-numeric:tabular-nums}
+.imp-tot .in{color:var(--in)}.imp-tot .out{color:var(--out)}
+.imp-list{padding:4px 8px}
+.imp-row{display:flex;align-items:flex-start;gap:10px;padding:10px 2px;border-top:1px solid var(--line)}
+.imp-list .imp-row:first-child{border-top:0}
+.imp-row.off{opacity:.5}
+.imp-row .mm{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
+.imp-row .d{font-size:11px;font-weight:700;color:var(--ink-3)}
+.imp-row .d b{color:#C98A00}
+.imp-row code{font:600 11.5px/1.4 ui-monospace,Menlo,Consolas,monospace;color:var(--ink-2);word-break:break-word}
+.imp-row .amt{margin-top:16px}
+.cb{width:24px;height:24px;border-radius:8px;border:2px solid var(--ink-3);display:grid;place-items:center;flex:none;color:#fff;margin-top:14px;transition:all .25s var(--spring)}
+.cb.on{background:var(--brand);border-color:var(--brand)}
+.cb svg.lucide{width:14px;height:14px;stroke-width:3}
+.chip.sm{align-self:flex-start;font-size:11.5px;padding:5px 9px}
+.imp-list .picker{margin:0 0 10px 34px}

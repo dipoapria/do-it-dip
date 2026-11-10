@@ -7,8 +7,13 @@ import {
   HandHeart, LayoutGrid, Briefcase, Gift, Coins, ArrowLeftRight, Landmark, Smartphone, Banknote, ChevronLeft, ChevronRight,
   PiggyBank, TrendingUp, TrendingDown, ShieldCheck, X, Check, Calendar, Info, Brain, Delete, Copy, Trash2, Lock, Tags,
   CloudUpload, Download, Upload, MonitorSmartphone, Sun, Moon, User, Laptop, Store, Users, Layers, Pointer, Pencil, Palette,
-  Presentation, Minimize, Flame, Clapperboard,
+  Presentation, Minimize, Flame, Clapperboard, Camera, ImagePlus, FileSpreadsheet, ScanLine, Receipt, KeyRound, TriangleAlert, RotateCcw,
 } from 'lucide';
+import { recognize, preprocess } from './ocr.ts';
+import { extract, NeedPassword } from './filetext.ts';
+import { parseReceipt } from './receipt.ts';
+import { guessRow, linesToStatement, rowsToStatement } from './statement.ts';
+import { KW } from './model.ts';
 import { initDesk, render as renderDesk, sync as syncDesk } from './desk.ts';
 import { addDays, BLN, BULAN, dayLabel, daysIn, digitsOnly, esc, fmtN, HARI, HARI_P, longDate, monthName, pad, pct, rp, shortTxt, toD, todayStr } from './format.ts';
 import { CATS, DEFAULT_WALLETS, IN_CATS, OUT_CATS, WALLET_COLORS, WALLET_ICON } from './model.ts';
@@ -22,6 +27,7 @@ const ICONS = {
   Briefcase, Gift, Coins, ArrowLeftRight, Landmark, Smartphone, Banknote, ChevronLeft, ChevronRight, PiggyBank, TrendingUp,
   TrendingDown, ShieldCheck, X, Check, Calendar, Info, Brain, Delete, Copy, Trash2, Lock, Tags, CloudUpload, Download, Upload,
   MonitorSmartphone, Sun, Moon, User, Laptop, Store, Users, Layers, Pointer, Pencil, Palette, Presentation, Minimize, Flame, Clapperboard,
+  Camera, ImagePlus, FileSpreadsheet, ScanLine, Receipt, KeyRound, TriangleAlert, RotateCcw,
 };
 function icons() { createIcons({ icons: ICONS, attrs: { 'stroke-width': 2.2 } }); }
 
@@ -31,6 +37,7 @@ const S = {
   mode: 'kalimat', co: null, nl: '', nlOv: {}, nlPick: null, lastSig: [], prevMarks: null, editId: null,
   m: null, timers: [], justDragged: false, wall: false, peekDrag: null, confirmFn: null, persisted: false,
   ob: null,
+  struk: { phase: 'idle' }, imp: { phase: 'idle', wallet: null, rows: [], pick: null },
 };
 const $ = (id) => document.getElementById(id);
 const app = () => $('app');
@@ -139,9 +146,9 @@ function vHome() {
   <div class="tip st" style="--i:2"><i data-lucide="arrow-down"></i>atau tarik layar ke bawah</div>
   <div class="quick st" style="--i:3">
     <button data-a="add" data-mode="manual"><span class="qi" style="--c:#3D8BFF"><i data-lucide="keyboard"></i></span>Manual</button>
+    <button data-a="add" data-mode="struk"><span class="qi" style="--c:#E04BB5"><i data-lucide="camera"></i></span>Foto struk</button>
+    <button data-a="add" data-mode="impor"><span class="qi" style="--c:#10B981"><i data-lucide="file-spreadsheet"></i></span>Impor mutasi</button>
     <button data-a="tab" data-t="1"><span class="qi" style="--c:#F0A010"><i data-lucide="chart-pie"></i></span>Rekap</button>
-    <button data-a="tab" data-t="2"><span class="qi" style="--c:#10B981"><i data-lucide="wallet"></i></span>Dompet</button>
-    <button data-a="backup"><span class="qi" style="--c:#E04BB5"><i data-lucide="download"></i></span>Cadangan</button>
   </div>
   <div class="sec-h st" style="--i:4"><h3>7 hari terakhir</h3><small class="num">${money(wsum)}</small></div>
   <div class="card st" style="--i:4">
@@ -498,14 +505,14 @@ function bindDrill() {
 }
 
 /* ================= composer ================= */
-const MODES = [['kalimat', 'Kalimat', 'sparkles'], ['manual', 'Manual', 'keyboard']];
+const MODES = [['kalimat', 'Kalimat', 'sparkles'], ['manual', 'Manual', 'keyboard'], ['struk', 'Struk', 'camera'], ['impor', 'Impor', 'file-spreadsheet']];
 function composerHTML() {
   const edit = !!S.editId;
   return `<div class="co-head"><div class="co-row"><h3>${edit ? 'Ubah transaksi' : 'Catat transaksi'}</h3><button class="icon-btn" data-a="close" aria-label="Tutup"><i data-lucide="x"></i></button></div>
   ${edit ? '' : `<div class="modes" id="modes"><span class="pill"></span>${MODES.map(([k, l, i]) => `<button class="${S.mode === k ? 'on' : ''}" data-a="mode" data-mode="${k}"><i data-lucide="${i}"></i>${l}</button>`).join('')}</div>`}</div>
   <div class="co-body" id="cobody"><div id="modebody">${modeHTML()}</div></div>`;
 }
-const modeHTML = () => (S.mode === 'kalimat' ? mKalimat() : mManual());
+const modeHTML = () => (S.mode === 'kalimat' ? mKalimat() : S.mode === 'manual' ? mManual() : S.mode === 'struk' ? mStruk() : mImpor());
 function placeModePill() { const i = MODES.findIndex((m) => m[0] === S.mode), pill = document.querySelector('#modes .pill'); if (pill) pill.style.transform = `translateX(calc(${i * 100}% + ${i * 4}px))`; }
 function openComposer(mode, x, y) {
   closeSheet(true); S.mode = mode; if (mode === 'manual' && !S.editId) S.m = S.m && S.m.amt ? S.m : newManual();
@@ -545,6 +552,98 @@ function switchMode(mode) {
 }
 function rerenderMode() { const mb = $('modebody'); if (!mb) return; mb.className = ''; mb.innerHTML = modeHTML(); icons(); afterModeRender(); }
 function afterModeRender() { document.querySelectorAll('#modebody .seg').forEach(placePill); if (S.mode === 'kalimat') { S.prevMarks = null; syncHL(); startType(); } }
+
+/* ---------- Struk: photo → on-device OCR → editable expense ---------- */
+const kwHit = (text) => { const t = ' ' + text.toLowerCase() + ' '; for (const w of t.match(/[a-z]+/g) || []) if (store.data.learned[w]) return store.data.learned[w]; for (const [re, c, s] of KW) if (re.test(t)) return { cat: c, sub: s }; return null; };
+/** Shop name decides first (Indomaret → Belanja); a long item list is a shopping trip; otherwise look at the whole text. */
+const receiptGuess = (res) => kwHit(res.merchant) || (res.items.length >= 3 ? { cat: 'belanja', sub: 'Kebutuhan harian' } : kwHit(res.lines.join(' '))) || { cat: 'belanja', sub: 'Kebutuhan harian' };
+function mStruk() {
+  const s = S.struk;
+  if (s.phase === 'idle') return `<div class="drop"><span class="ic" style="--c:#E04BB5"><i data-lucide="receipt"></i></span><b>Foto struk belanja</b>
+    <small>Total, nama toko, dan tanggal dibaca otomatis langsung di HP ini. Foto lurus, terang, dan seluruh struk masuk bingkai.</small>
+    <div class="btn-row" style="width:100%"><label class="btn2 primaryish" for="strukCam"><i data-lucide="camera"></i>Foto struk</label><label class="btn2" for="strukPick"><i data-lucide="image-plus"></i>Dari galeri</label></div>
+    <input type="file" id="strukCam" accept="image/*" capture="environment" hidden><input type="file" id="strukPick" accept="image/*" hidden>
+    <small class="muted">Pemakaian pertama mengunduh pembaca teks ±5 MB (perlu internet). Setelah itu jauh lebih cepat.</small></div>`;
+  if (s.phase === 'reading') return `<div class="st-img"><img src="${s.img}" alt="Foto struk"><div class="scan"></div></div>
+    <div class="st-prog"><div class="bar"><i id="stProg" style="width:${Math.round((s.progress || 0) * 100)}%"></i></div><span id="stLbl">${esc(s.label || 'Menyiapkan…')}</span></div>`;
+  if (s.phase === 'error') return `<div class="st-img small"><img src="${s.img}" alt="Foto struk"></div><div class="err-card"><i data-lucide="triangle-alert"></i><div><b>Struk belum terbaca</b><p>${esc(s.err)}</p></div></div>
+    <div class="btn-row"><button class="btn2" data-a="stRetry"><i data-lucide="rotate-ccw"></i>Foto ulang</button><button class="btn2" data-a="mode" data-mode="manual"><i data-lucide="keyboard"></i>Isi manual</button></div>`;
+  const f = s.form, r = s.res, c = CATS[f.cat];
+  const wchips = WL().map((w) => `<button class="chip ${f.wallet === w.id ? 'on' : ''}" data-a="stset" data-k="wallet" data-v="${w.id}"><i data-lucide="${WALLET_ICON[w.group]}"></i>${esc(w.name)}</button>`).join('');
+  return `<div class="st-done"><div class="st-img small"><img src="${s.img}" alt="Foto struk"></div><div><span class="type out">Pengeluaran</span><p class="muted" style="margin:6px 0 0">${r.total ? 'Periksa hasilnya, lalu simpan.' : '<b>Total tidak terbaca.</b> Isi nominalnya di bawah.'}</p></div></div>
+  <span class="lab">Total</span><input class="field amt-field" id="stAmt" inputmode="numeric" value="${f.amount ? fmtN(f.amount) : ''}" placeholder="Rp0" autocomplete="off">
+  <span class="lab">Catatan</span><input class="field" id="stNote" maxlength="60" value="${esc(f.note)}" autocomplete="off">
+  <span class="lab">Tanggal</span><input class="field" type="date" id="stDate" value="${f.date}" max="${T()}">
+  <span class="lab">Kategori</span><div class="hscroll">${OUT_CATS.map((k) => `<button class="chip cat ${f.cat === k ? 'on' : ''}" style="--c:${CATS[k].c}" data-a="stset" data-k="cat" data-v="${k}"><i data-lucide="${CATS[k].i}"></i>${CATS[k].n}</button>`).join('')}</div>
+  <div class="hscroll">${c.subs.map((x) => `<button class="chip ${f.sub === x ? 'on' : ''}" data-a="stset" data-k="sub" data-v="${esc(x)}">${esc(x)}</button>`).join('')}</div>
+  <span class="lab">Dibayar pakai</span><div class="hscroll">${wchips}</div>
+  ${r.items.length ? `<details class="st-more"><summary>${r.items.length} barang terbaca</summary>${r.items.map((it) => `<div class="kv"><span>${esc(it.name)}</span><b>${rp(it.amount)}</b></div>`).join('')}</details>` : ''}
+  <details class="st-more"><summary>Teks yang terbaca</summary><pre>${esc(r.lines.join('\n') || '(kosong)')}</pre></details>
+  <button class="primary" data-a="saveStruk" ${f.amount ? '' : 'disabled'}><i data-lucide="check"></i>Simpan dari struk</button>
+  <button class="btn2" style="width:100%;margin-top:8px;background:none" data-a="stRetry"><i data-lucide="rotate-ccw"></i>Foto struk lain</button>`;
+}
+async function startStruk(file) {
+  S.struk = { phase: 'reading', img: URL.createObjectURL(file), progress: 0, label: 'Menyiapkan foto…' }; rerenderMode();
+  const mine = S.struk;
+  try {
+    const img = await preprocess(file);
+    const text = await recognize(img, (p, l) => { mine.progress = p; mine.label = l; const b = $('stProg'), lb = $('stLbl'); if (b) b.style.width = Math.round(p * 100) + '%'; if (lb) lb.textContent = l; });
+    if (S.struk !== mine) return;
+    const res = parseReceipt(text, T()), g = receiptGuess(res);
+    if (!res.lines.length) throw new Error('empty');
+    S.struk = { ...mine, phase: 'done', res, form: { amount: res.total || 0, note: res.merchant || 'Belanja', date: res.date || T(), cat: g.cat, sub: g.sub, wallet: defaults().cash } };
+  } catch (e) {
+    if (S.struk !== mine) return;
+    S.struk = { ...mine, phase: 'error', err: !navigator.onLine ? 'Pemakaian pertama butuh internet untuk mengunduh pembaca teks. Sambungkan internet lalu coba lagi.' : 'Teksnya tidak terbaca. Coba foto lebih dekat, lurus, dan di tempat terang.' };
+    console.error(e);
+  }
+  if (S.mode === 'struk' && !$('composer').hidden) rerenderMode();
+}
+
+/* ---------- Impor: bank statement file → reviewed transactions ---------- */
+function impCtx() { return { source: S.imp.wallet, learned: store.data.learned, wallets: WL().map((w) => ({ id: w.id, aliases: w.aliases?.length ? w.aliases : [w.name.toLowerCase()], group: w.group })) }; }
+function regroupImport() { const g = impCtx(); S.imp.rows.forEach((r) => { if (!r.manual) r.g = guessRow(r, g); r.dup = TX().some((t) => t.date === r.date && t.amount === r.amount && (t.wallet === S.imp.wallet || t.to === S.imp.wallet)); }); }
+function mImpor() {
+  const s = S.imp; if (!s.wallet || !WL().some((w) => w.id === s.wallet)) s.wallet = (WL().find((w) => w.group === 'Bank') || WL()[0])?.id;
+  const head = `<span class="lab">Mutasi dari rekening</span><div class="hscroll">${WL().map((w) => `<button class="chip ${s.wallet === w.id ? 'on' : ''}" data-a="impWallet" data-v="${w.id}"><i data-lucide="${WALLET_ICON[w.group]}"></i>${esc(w.name)}</button>`).join('')}</div>`;
+  const pickBtn = `<div class="btn-row" style="width:100%"><label class="btn2 primaryish" for="impFile"><i data-lucide="file-spreadsheet"></i>File mutasi</label><label class="btn2" for="impShot"><i data-lucide="image-plus"></i>Screenshot</label></div>
+    <input type="file" id="impFile" accept=".csv,.txt,.xlsx,.pdf,text/csv,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden><input type="file" id="impShot" accept="image/*" hidden>`;
+  if (s.phase === 'idle') return head + `<div class="drop"><span class="ic" style="--c:#10B981"><i data-lucide="file-spreadsheet"></i></span><b>Impor mutasi rekening</b>
+    <small><b>File mutasi:</b> CSV, Excel .xlsx, atau PDF dari aplikasi bank (misalnya PermataMobile X → Mutasi Transaksi → unduh PDF).<br><b>Screenshot:</b> untuk bank tanpa fitur unduh mutasi, tangkap layar riwayat transaksi di aplikasi bank.<br>Transaksi dikelompokkan otomatis dan bisa diperiksa sebelum disimpan. File hanya dibaca di HP ini.</small>${pickBtn}</div>`;
+  if (s.phase === 'reading') return head + `<div class="drop"><span class="ic spin-ic" style="--c:#10B981"><i data-lucide="scan-line"></i></span><b>Membaca ${esc(s.fileName)}…</b><small id="impLbl"></small></div>`;
+  if (s.phase === 'pw') return head + `<div class="drop"><span class="ic" style="--c:#F0A010"><i data-lucide="key-round"></i></span><b>File dikunci kata sandi</b>
+    <small>${s.pwWrong ? '<b style="color:var(--out)">Kata sandi salah.</b> ' : ''}E-statement bank biasanya dikunci dengan tanggal lahir atau kata sandi dari email bank. Kata sandi hanya dipakai untuk membuka file ini dan tidak disimpan.</small>
+    <input class="field" type="password" id="impPw" autocomplete="off" placeholder="Kata sandi file"><button class="btn2 primaryish" data-a="impPw">Buka file</button></div>`;
+  if (s.phase === 'error') return head + `<div class="err-card"><i data-lucide="triangle-alert"></i><div><b>Mutasi belum terbaca</b><p>${esc(s.err)}</p></div></div>
+    ${s.sample?.length ? `<details class="st-more" open><summary>Isi awal file (kirim ini ke pengembang agar formatnya didukung)</summary><pre>${esc(s.sample.join('\n'))}</pre></details>` : ''}<div style="height:10px"></div>${pickBtn}`;
+  const on = s.rows.filter((r) => r.on), inn = on.filter((r) => r.g.type === 'in').reduce((a, r) => a + r.amount, 0), out = on.filter((r) => r.g.type === 'out').reduce((a, r) => a + r.amount, 0), dups = s.rows.filter((r) => r.dup).length;
+  return head + `<div class="imp-sum"><div><b>${s.rows.length} transaksi terbaca</b><small>${esc(s.fileName)}${dups ? ` · ${dups} kemungkinan sudah tercatat (tidak dicentang)` : ''}</small></div>
+    <div class="imp-tot"><span class="in">+${rp(inn)}</span><span class="out">−${rp(out)}</span></div></div>
+    <div class="btn-row" style="margin:0 0 10px"><button class="btn2" data-a="impAll">Pilih semua</button><button class="btn2" data-a="impNone">Kosongkan</button></div>
+    <div class="list imp-list">${s.rows.map((r, i) => {
+      const g = r.g, lbl = g.type === 'tf' ? `Transfer → ${esc(W(g.to).name)}` : `${CATS[g.cat].n} · ${esc(g.sub)}`, col = g.type === 'tf' ? '#3D7BFF' : CATS[g.cat].c;
+      return `<div class="imp-row ${r.on ? '' : 'off'}"><button class="cb ${r.on ? 'on' : ''}" data-a="impTog" data-i="${i}" aria-label="Pilih transaksi">${r.on ? '<i data-lucide="check"></i>' : ''}</button>
+      <div class="mm"><small class="d">${dayLabel(r.date, T())}${r.dup ? ' · <b>sudah ada?</b>' : ''}</small><code>${esc(r.desc)}</code>
+      <button class="chip cat sm ${s.pick === i ? 'on' : ''}" style="--c:${col}" data-a="impPick" data-i="${i}">${lbl}<i data-lucide="chevron-down"></i></button></div>
+      <span class="amt ${g.type}">${g.type === 'in' ? '+' : g.type === 'out' ? '−' : ''}${rp(r.amount)}</span></div>
+      ${s.pick === i ? `<div class="picker">${(r.type === 'in' ? IN_CATS : OUT_CATS).map((k) => `<button class="chip cat" style="--c:${CATS[k].c}" data-a="impSet" data-i="${i}" data-cat="${k}"><i data-lucide="${CATS[k].i}"></i>${CATS[k].n}</button>`).join('')}${r.type === 'out' ? WL().filter((w) => w.id !== s.wallet).map((w) => `<button class="chip" data-a="impSet" data-i="${i}" data-to="${w.id}"><i data-lucide="arrow-left-right"></i>Ke ${esc(w.name)}</button>`).join('') : ''}</div>` : ''}`;
+    }).join('')}</div>
+    <div style="height:12px"></div><button class="primary" data-a="impSave" ${on.length ? '' : 'disabled'}><i data-lucide="download"></i>Impor ${on.length} transaksi</button>
+    <button class="btn2" style="width:100%;margin-top:8px;background:none" data-a="impReset"><i data-lucide="rotate-ccw"></i>Pilih file lain</button>`;
+}
+async function startImport(file, password) {
+  S.imp = { ...S.imp, phase: 'reading', fileName: file.name, file, rows: [], pick: null }; rerenderMode();
+  try {
+    const ex = await extract(file, password, (p, l) => { const lb = $('impLbl'); if (lb) lb.textContent = `${l} ${Math.round(p * 100)}%`; }), year = Number(T().slice(0, 4));
+    const rows = ex.kind === 'rows' ? rowsToStatement(ex.rows, year) : linesToStatement(ex.lines, year);
+    if (!rows.length) { S.imp.phase = 'error'; S.imp.err = 'Belum ada transaksi yang bisa dibaca dari file ini. Formatnya mungkin berbeda dari yang dikenali.'; S.imp.sample = (ex.kind === 'rows' ? ex.rows.slice(0, 10).map((r) => r.join(' | ')) : ex.lines.slice(0, 14)); }
+    else { S.imp.rows = rows.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0)).map((r) => ({ ...r, g: null, on: true, dup: false })); regroupImport(); S.imp.rows.forEach((r) => (r.on = !r.dup)); S.imp.phase = 'review'; }
+  } catch (e) {
+    if (e instanceof NeedPassword) { S.imp.phase = 'pw'; S.imp.pwWrong = e.wrong; }
+    else { S.imp.phase = 'error'; S.imp.err = e?.message || 'File gagal dibaca.'; S.imp.sample = null; console.error(e); }
+  }
+  if (S.mode === 'impor' && !$('composer').hidden) { rerenderMode(); if (S.imp.phase === 'pw') later(100, () => $('impPw')?.focus()); }
+}
 
 const EXAMPLES = ['kopi susu 18rb gopay', 'makan siang 25rb', 'bensin 40rb tunai kemarin', 'gaji 5,2jt masuk sumsel', 'topup dana 100rb dari permata', 'token listrik 200rb', 'tarik tunai 300rb'];
 function mKalimat() {
@@ -858,10 +957,20 @@ function bindEvents() {
     if (id === 'mnote') S.m.note = e.target.value;
     if (id === 'mdate' && e.target.value) { S.m.date = e.target.value > T() ? T() : e.target.value; const sc = $('cobody').scrollTop; rerenderMode(); $('cobody').scrollTop = sc; }
     if (id === 'obName') S.ob.name = e.target.value;
+    if (id === 'stAmt') { const v = digitsOnly(e.target.value); e.target.value = v ? fmtN(v) : ''; S.struk.form.amount = v; const b = document.querySelector('[data-a="saveStruk"]'); if (b) b.disabled = !v; }
+    if (id === 'stNote') S.struk.form.note = e.target.value;
+    if (id === 'stDate' && e.target.value) S.struk.form.date = e.target.value > T() ? T() : e.target.value;
     if (id.startsWith('obw-') || id === 'wfInit') { const v = digitsOnly(e.target.value); e.target.value = v ? fmtN(v) : ''; if (id.startsWith('obw-')) S.ob.wallets[Number(id.slice(4))].init = String(v); }
   });
   document.addEventListener('scroll', (e) => { if (e.target.id === 'nl') syncHL(); }, true);
-  document.addEventListener('change', (e) => { if (e.target.id === 'restoreFile' && e.target.files?.[0]) { readBackupFile(e.target.files[0]); e.target.value = ''; } });
+  document.addEventListener('change', (e) => {
+    const id = e.target.id, f = e.target.files?.[0]; if (!f) return;
+    if (id === 'restoreFile') readBackupFile(f);
+    if (id === 'strukCam' || id === 'strukPick') startStruk(f);
+    if (id === 'impFile' || id === 'impShot') startImport(f);
+    e.target.value = '';
+  });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.id === 'impPw') { e.preventDefault(); onClick({ target: document.querySelector('[data-a="impPw"]') }); } });
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') { if ($('layer').innerHTML) closeSheet(); else if (!$('composer').hidden) closeComposer(); else if (!$('drill').hidden) closeDrill(); return; }
     if (e.key === 'Enter' && e.target.id === 'renameIn') { e.preventDefault(); onClick({ target: document.querySelector('[data-a="renameSave"]') }); return; }
@@ -990,6 +1099,33 @@ function onClick(e) {
       if (S.editId) { const t = store.updateTx(S.editId, rec); if (t) markFresh([t]); S.m = null; closeComposer(); refresh(); toast('Perubahan disimpan'); break; }
       const t = store.addTx(rec); markFresh([t]);
       const src = $('mamt'); S.m = null; celebrate((m.type === 'in' ? '+' : '') + rp(amt), m.type, src, `Tercatat: ${rp(amt)}`); break;
+    }
+    /* struk */
+    case 'stRetry': S.struk = { phase: 'idle' }; rerenderMode(); break;
+    case 'stset': { const f = S.struk.form; f[d.k] = d.v; if (d.k === 'cat') f.sub = CATS[d.v].subs[0]; const sc = $('cobody').scrollTop; rerenderMode(); $('cobody').scrollTop = sc; break; }
+    case 'saveStruk': {
+      const f = S.struk.form; if (!f.amount) break;
+      const t = store.addTx({ date: f.date, type: 'out', cat: f.cat, sub: f.sub, amount: f.amount, wallet: f.wallet, to: null, note: (f.note || 'Belanja').trim() }); markFresh([t]);
+      S.struk = { phase: 'idle' }; celebrate(rp(f.amount), 'out', el, `Struk tersimpan: ${rp(f.amount)}`); break;
+    }
+    /* impor */
+    case 'impWallet': S.imp.wallet = d.v; if (S.imp.phase === 'review') regroupImport(); { const sc = $('cobody').scrollTop; rerenderMode(); $('cobody').scrollTop = sc; } break;
+    case 'impPw': { const pw = $('impPw')?.value; if (!pw || !S.imp.file) break; startImport(S.imp.file, pw); break; }
+    case 'impReset': S.imp = { phase: 'idle', wallet: S.imp.wallet, rows: [], pick: null }; rerenderMode(); break;
+    case 'impTog': { const r = S.imp.rows[Number(d.i)]; r.on = !r.on; const sc = $('cobody').scrollTop; rerenderMode(); $('cobody').scrollTop = sc; break; }
+    case 'impAll': case 'impNone': { S.imp.rows.forEach((r) => (r.on = a === 'impAll')); const sc = $('cobody').scrollTop; rerenderMode(); $('cobody').scrollTop = sc; break; }
+    case 'impPick': { S.imp.pick = S.imp.pick === Number(d.i) ? null : Number(d.i); const sc = $('cobody').scrollTop; rerenderMode(); $('cobody').scrollTop = sc; break; }
+    case 'impSet': {
+      const r = S.imp.rows[Number(d.i)]; r.manual = true;
+      if (d.to) r.g = { ...r.g, type: 'tf', cat: null, sub: null, to: d.to, note: (W(d.to).group === 'E-wallet' ? 'Isi saldo ' : 'Transfer ke ') + W(d.to).name };
+      else r.g = { ...r.g, type: CATS[d.cat].inc ? 'in' : 'out', cat: d.cat, sub: CATS[d.cat].subs[0], to: null };
+      S.imp.pick = null; const sc = $('cobody').scrollTop; rerenderMode(); $('cobody').scrollTop = sc; break;
+    }
+    case 'impSave': {
+      const src = S.imp.wallet, rows = S.imp.rows.filter((r) => r.on); if (!rows.length) break;
+      const added = rows.map((r) => store.addTx({ date: r.date, type: r.g.type, cat: r.g.type === 'tf' ? null : r.g.cat, sub: r.g.type === 'tf' ? null : r.g.sub, amount: r.amount, wallet: src, to: r.g.type === 'tf' ? r.g.to : null, note: r.g.note }));
+      markFresh(added); const n = added.length; S.imp = { phase: 'idle', wallet: src, rows: [], pick: null };
+      celebrate(`${n} transaksi`, 'tf', el, `${n} transaksi diimpor dari ${W(src).name}`); break;
     }
     /* onboarding */
     case 'obNext': S.ob.name = $('obName').value; S.ob.step = 1; renderOnb(); break;

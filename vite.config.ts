@@ -26,7 +26,20 @@ export default defineConfig({
         ]
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,svg,png,woff2}']
+        globPatterns: ['**/*.{js,mjs,css,html,svg,png,woff2}'],
+        maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
+        // Receipt OCR downloads its engine + Indonesian language data from CDNs on first use; keep them for offline use.
+        runtimeCaching: [
+          {
+            urlPattern: ({ url }) => /(^|\.)jsdelivr\.net$|(^|\.)unpkg\.com$|tessdata\.projectnaptha\.com$/.test(url.hostname),
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'ocr-engine',
+              expiration: { maxEntries: 30, maxAgeSeconds: 60 * 60 * 24 * 180 },
+              cacheableResponse: { statuses: [0, 200] }
+            }
+          }
+        ]
       }
     })
   ]
