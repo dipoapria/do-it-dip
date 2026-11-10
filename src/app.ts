@@ -520,27 +520,31 @@ function openComposer(mode, x, y) {
   S.co = { x, y };
   const focus = () => { const n = $('nl'); if (n) n.focus({ preventScroll: true }); };
   if (reduced()) { if (mode === 'kalimat') later(50, focus); return; }
-  const ph = app(), Wd = ph.clientWidth, H = ph.clientHeight, R = Math.hypot(Math.max(x, Wd - x), Math.max(y, H - y)), blobs = [];
+  // Light on purpose (iPhone): three small circles grow with transform only (GPU-composited, tiny textures),
+  // then the sheet fades/scales in from the touch point. No clip-path or border-radius animation, which forced
+  // full-screen repaints every frame and could make Safari run out of memory and reload the app.
+  const ph = app(), Wd = ph.clientWidth, H = ph.clientHeight, R = Math.hypot(Math.max(x, Wd - x), Math.max(y, H - y)), D = 80, k = (R * 2.1) / D, blobs = [];
   ['#BFF5E8', '#2CC4AB', '#0B7C8A'].forEach((col, i) => {
-    const b = document.createElement('div'), s = R * 2.4; b.className = 'splash'; b.style.cssText = `left:${x}px;top:${y}px;width:${s}px;height:${s}px;background:${col}`; ph.appendChild(b); blobs.push(b);
-    b.animate([{ transform: 'translate(-50%,-50%) scale(0) rotate(0deg)', borderRadius: '38% 62% 63% 37% / 41% 44% 56% 59%' }, { transform: 'translate(-50%,-50%) scale(.45) rotate(80deg)', borderRadius: '63% 37% 37% 63% / 58% 62% 38% 42%', offset: 0.45 }, { transform: 'translate(-50%,-50%) scale(1) rotate(160deg)', borderRadius: '50%' }], { duration: 640, delay: i * 90, easing: 'cubic-bezier(.55,0,.2,1)', fill: 'both' });
+    const b = document.createElement('div'); b.className = 'splash'; b.style.cssText = `left:${x - D / 2}px;top:${y - D / 2}px;width:${D}px;height:${D}px;background:${col}`; ph.appendChild(b); blobs.push(b);
+    b.animate([{ transform: 'scale(0)' }, { transform: `scale(${k.toFixed(2)})` }], { duration: 380, delay: i * 70, easing: 'cubic-bezier(.5,0,.2,1)', fill: 'both' });
   });
   sparks(x, y);
-  const fab = $('fab'); if (fab) fab.animate([{ transform: 'translateY(-14px) rotate(-6deg)' }, { transform: 'translateY(-14px) rotate(135deg) scale(.6)' }], { duration: 420, easing: 'cubic-bezier(.3,1.4,.5,1)' });
-  const a = c.animate([{ clipPath: `circle(0px at ${x}px ${y}px)` }, { clipPath: `circle(${R}px at ${x}px ${y}px)` }], { duration: 520, delay: 330, easing: 'cubic-bezier(.65,0,.25,1)', fill: 'backwards' });
-  onEnd(a, 850, () => blobs.forEach((b) => b.remove()));
-  [...c.querySelectorAll('.co-row,.modes'), ...$('modebody').children].forEach((p, i) => p.animate([{ transform: 'translateY(50px) scale(.92)', opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 700, delay: 520 + i * 65, easing: 'cubic-bezier(.16,1,.3,1)', fill: 'backwards' }));
-  if (mode === 'kalimat') later(820, focus);
+  const fab = $('fab'); if (fab) fab.animate([{ transform: 'translateY(-14px) rotate(-6deg)' }, { transform: 'translateY(-14px) rotate(135deg) scale(.6)' }], { duration: 380, easing: 'cubic-bezier(.3,1.4,.5,1)' });
+  c.style.transformOrigin = `${x}px ${y}px`;
+  const a = c.animate([{ opacity: 0, transform: 'scale(.94)' }, { opacity: 1, transform: 'none' }], { duration: 240, delay: 340, easing: 'ease-out', fill: 'backwards' });
+  onEnd(a, 600, () => blobs.forEach((b) => b.remove()));
+  [c.querySelector('.co-head'), $('modebody')].filter(Boolean).forEach((p, i) => p.animate([{ transform: 'translateY(28px)', opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 420, delay: 420 + i * 80, easing: 'cubic-bezier(.16,1,.3,1)', fill: 'backwards' }));
+  if (mode === 'kalimat') later(700, focus);
 }
-function sparks(x, y) { if (reduced()) return; const ph = app(); for (let i = 0; i < 16; i++) { const s = document.createElement('span'); s.className = 'burst'; const a = (i / 16) * Math.PI * 2, r = 90 + Math.random() * 90; s.style.cssText = `left:${x}px;top:${y}px;background:#fff;width:6px;height:6px;border-radius:50%;--x:${Math.cos(a) * r}px;--y:${Math.sin(a) * r}px;box-shadow:0 0 10px #FFC93C`; ph.appendChild(s); setTimeout(() => s.remove(), 950); } }
+function sparks(x, y) { if (reduced()) return; const ph = app(); for (let i = 0; i < 8; i++) { const s = document.createElement('span'); s.className = 'burst'; const a = (i / 8) * Math.PI * 2, r = 90 + Math.random() * 70; s.style.cssText = `left:${x}px;top:${y}px;background:#fff;width:7px;height:7px;border-radius:50%;--x:${Math.cos(a) * r}px;--y:${Math.sin(a) * r}px`; ph.appendChild(s); setTimeout(() => s.remove(), 950); } }
 function closeComposer(to) {
   const c = $('composer'); if (c.hidden) return; clearTimers(); stopType();
   const done = () => { c.hidden = true; c.innerHTML = ''; S.editId = null; };
   const { x, y } = to || S.co || { x: c.clientWidth / 2, y: c.clientHeight - 40 };
   if (reduced()) { done(); return; }
-  const r = Math.hypot(Math.max(x, c.clientWidth - x), Math.max(y, c.clientHeight - y));
-  const a = c.animate([{ clipPath: `circle(${r}px at ${x}px ${y}px)` }, { clipPath: `circle(0px at ${x}px ${y}px)` }], { duration: 440, easing: 'cubic-bezier(.65,0,.35,1)', fill: 'forwards' });
-  onEnd(a, 440, () => { done(); a.cancel(); });
+  c.style.transformOrigin = `${x}px ${y}px`;
+  const a = c.animate([{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'scale(.9)' }], { duration: 260, easing: 'cubic-bezier(.5,0,.75,0)', fill: 'forwards' });
+  onEnd(a, 260, () => { done(); a.cancel(); });
 }
 function switchMode(mode) {
   if (mode === S.mode) return; clearTimers(); stopType();
@@ -555,8 +559,19 @@ function afterModeRender() { document.querySelectorAll('#modebody .seg').forEach
 
 /* ---------- Struk: photo → on-device OCR → editable expense ---------- */
 const kwHit = (text) => { const t = ' ' + text.toLowerCase() + ' '; for (const w of t.match(/[a-z]+/g) || []) if (store.data.learned[w]) return store.data.learned[w]; for (const [re, c, s] of KW) if (re.test(t)) return { cat: c, sub: s }; return null; };
-/** Shop name decides first (Indomaret → Belanja); a long item list is a shopping trip; otherwise look at the whole text. */
-const receiptGuess = (res) => kwHit(res.merchant) || (res.items.length >= 3 ? { cat: 'belanja', sub: 'Kebutuhan harian' } : kwHit(res.lines.join(' '))) || { cat: 'belanja', sub: 'Kebutuhan harian' };
+/** Known chain decides first (Indomaret → Belanja); then the shop name; a long item list is a shopping trip; then the item names. */
+const receiptGuess = (res) => res.storeCat || kwHit(res.merchant) || (res.items.length >= 3 ? { cat: 'belanja', sub: 'Kebutuhan harian' } : kwHit(res.items.map((i) => i.name).join(' '))) || { cat: 'belanja', sub: 'Kebutuhan harian' };
+/** One item → its name ("VIT AIR MINERAL 19 L"); several → the shop. */
+const receiptNote = (res) => (res.items.length === 1 ? res.items[0].name : res.merchant || 'Belanja');
+/** Wallet from how the receipt says it was paid (TUNAI → cash, GOPAY → GoPay, DEBIT → main bank). */
+function receiptWallet(pay) {
+  const d = defaults();
+  if (!pay || pay === 'cash') return d.cash;
+  if (pay === 'card') return d.bank;
+  const w = WL().find((x) => (x.aliases || [x.name.toLowerCase()]).some((a) => a.replace(/\s/g, '') === pay));
+  return w ? w.id : d.cash;
+}
+const PAY_LABEL = { cash: 'tunai', card: 'kartu/debit', gopay: 'GoPay', ovo: 'OVO', dana: 'DANA', shopeepay: 'ShopeePay', linkaja: 'LinkAja' };
 function mStruk() {
   const s = S.struk;
   if (s.phase === 'idle') return `<div class="drop"><span class="ic" style="--c:#E04BB5"><i data-lucide="receipt"></i></span><b>Foto struk belanja</b>
@@ -573,10 +588,10 @@ function mStruk() {
   return `<div class="st-done"><div class="st-img small"><img src="${s.img}" alt="Foto struk"></div><div><span class="type out">Pengeluaran</span><p class="muted" style="margin:6px 0 0">${r.total ? 'Periksa hasilnya, lalu simpan.' : '<b>Total tidak terbaca.</b> Isi nominalnya di bawah.'}</p></div></div>
   <span class="lab">Total</span><input class="field amt-field" id="stAmt" inputmode="numeric" value="${f.amount ? fmtN(f.amount) : ''}" placeholder="Rp0" autocomplete="off">
   <span class="lab">Catatan</span><input class="field" id="stNote" maxlength="60" value="${esc(f.note)}" autocomplete="off">
-  <span class="lab">Tanggal</span><input class="field" type="date" id="stDate" value="${f.date}" max="${T()}">
+  <span class="lab">Tanggal${r.date ? '' : ' <em class="from-receipt warn">· tidak terbaca, diisi hari ini</em>'}</span><input class="field" type="date" id="stDate" value="${f.date}" max="${T()}">
   <span class="lab">Kategori</span><div class="hscroll">${OUT_CATS.map((k) => `<button class="chip cat ${f.cat === k ? 'on' : ''}" style="--c:${CATS[k].c}" data-a="stset" data-k="cat" data-v="${k}"><i data-lucide="${CATS[k].i}"></i>${CATS[k].n}</button>`).join('')}</div>
   <div class="hscroll">${c.subs.map((x) => `<button class="chip ${f.sub === x ? 'on' : ''}" data-a="stset" data-k="sub" data-v="${esc(x)}">${esc(x)}</button>`).join('')}</div>
-  <span class="lab">Dibayar pakai</span><div class="hscroll">${wchips}</div>
+  <span class="lab">Dibayar pakai${r.pay ? ` <em class="from-receipt">· struk: ${PAY_LABEL[r.pay] || r.pay}</em>` : ''}</span><div class="hscroll">${wchips}</div>
   ${r.items.length ? `<details class="st-more"><summary>${r.items.length} barang terbaca</summary>${r.items.map((it) => `<div class="kv"><span>${esc(it.name)}</span><b>${rp(it.amount)}</b></div>`).join('')}</details>` : ''}
   <details class="st-more"><summary>Teks yang terbaca</summary><pre>${esc(r.lines.join('\n') || '(kosong)')}</pre></details>
   <button class="primary" data-a="saveStruk" ${f.amount ? '' : 'disabled'}><i data-lucide="check"></i>Simpan dari struk</button>
@@ -591,7 +606,7 @@ async function startStruk(file) {
     if (S.struk !== mine) return;
     const res = parseReceipt(text, T()), g = receiptGuess(res);
     if (!res.lines.length) throw new Error('empty');
-    S.struk = { ...mine, phase: 'done', res, form: { amount: res.total || 0, note: res.merchant || 'Belanja', date: res.date || T(), cat: g.cat, sub: g.sub, wallet: defaults().cash } };
+    S.struk = { ...mine, phase: 'done', res, form: { amount: res.total || 0, note: receiptNote(res), date: res.date || T(), cat: g.cat, sub: g.sub, wallet: receiptWallet(res.pay) } };
   } catch (e) {
     if (S.struk !== mine) return;
     S.struk = { ...mine, phase: 'error', err: !navigator.onLine ? 'Pemakaian pertama butuh internet untuk mengunduh pembaca teks. Sambungkan internet lalu coba lagi.' : 'Teksnya tidak terbaca. Coba foto lebih dekat, lurus, dan di tempat terang.' };
@@ -734,8 +749,9 @@ function fly(f, from, to, done) {
   const step = (now) => {
     const k = Math.min(1, (now - t0) / dur), e = k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2;
     const x = B(e, from.x, p1.x, p2.x, to.x), y = B(e, from.y, p1.y, p2.y, to.y), sc = 1 - e * 0.5, spin = Math.cos(e * Math.PI * 5);
-    f.style.left = x + 'px'; f.style.top = y + 'px'; f.style.transform = `translate(-50%,-50%) scale(${(sc * Math.max(0.12, Math.abs(spin))).toFixed(3)},${sc.toFixed(3)})`;
-    if (now - lt > 14) { lt = now; for (let j = 0; j < 2; j++) { const s = document.createElement('span'); s.className = 'trail'; const sz = 4 + Math.random() * 9 * (1 - e * 0.4); s.style.cssText = `left:${x + (Math.random() - 0.5) * 16}px;top:${y + (Math.random() - 0.5) * 16}px;width:${sz}px;height:${sz}px;background:${cols[(Math.random() * cols.length) | 0]};box-shadow:0 0 8px #FFC93C`; f.parentNode.appendChild(s); setTimeout(() => s.remove(), 640); } }
+    // Move with transform only (no left/top → no layout per frame); sparse trail without glow shadows.
+    f.style.transform = `translate(${(x - from.x).toFixed(1)}px,${(y - from.y).toFixed(1)}px) translate(-50%,-50%) scale(${(sc * Math.max(0.12, Math.abs(spin))).toFixed(3)},${sc.toFixed(3)})`;
+    if (now - lt > 32) { lt = now; const s = document.createElement('span'); s.className = 'trail'; const sz = 5 + Math.random() * 7 * (1 - e * 0.4); s.style.cssText = `left:${x + (Math.random() - 0.5) * 12}px;top:${y + (Math.random() - 0.5) * 12}px;width:${sz}px;height:${sz}px;background:${cols[(Math.random() * cols.length) | 0]}`; f.parentNode.appendChild(s); setTimeout(() => s.remove(), 640); }
     if (k < 1) requestAnimationFrame(step); else { f.remove(); done(); }
   };
   requestAnimationFrame(step);
@@ -752,7 +768,7 @@ function impact(p, label) {
 }
 function burst(x, y) {
   if (reduced()) return; const ph = app(), cols = ['#13A894', '#0B7C8A', '#FFC93C', '#7EE6D2', '#3D8BFF', '#8B5CF6'];
-  for (let i = 0; i < 28; i++) { const b = document.createElement('span'); b.className = 'burst'; const a = Math.random() * Math.PI * 2, r = 60 + Math.random() * 110; b.style.cssText = `left:${x}px;top:${y}px;background:${cols[i % cols.length]};--x:${Math.cos(a) * r}px;--y:${Math.sin(a) * r - 30}px;border-radius:${i % 2 ? '50%' : '3px'};width:${6 + Math.random() * 6}px;height:${6 + Math.random() * 6}px`; ph.appendChild(b); setTimeout(() => b.remove(), 950); }
+  for (let i = 0; i < 18; i++) { const b = document.createElement('span'); b.className = 'burst'; const a = Math.random() * Math.PI * 2, r = 60 + Math.random() * 110; b.style.cssText = `left:${x}px;top:${y}px;background:${cols[i % cols.length]};--x:${Math.cos(a) * r}px;--y:${Math.sin(a) * r - 30}px;border-radius:${i % 2 ? '50%' : '3px'};width:${6 + Math.random() * 6}px;height:${6 + Math.random() * 6}px`; ph.appendChild(b); setTimeout(() => b.remove(), 950); }
 }
 let toastT;
 function toast(msg, undo) {

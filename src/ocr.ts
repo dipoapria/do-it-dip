@@ -20,6 +20,28 @@ export async function preprocess(file: Blob): Promise<Blob> {
   return await new Promise<Blob>((res, rej) => canvas.toBlob((b) => (b ? res(b) : rej(new Error('Foto gagal diproses'))), 'image/jpeg', 0.92));
 }
 
+interface OcrWord { text: string; confidence: number }
+interface OcrData { blocks?: { paragraphs: { lines: { words: OcrWord[] }[] }[] }[] | null }
+/**
+ * Rebuild the text line by line, dropping low-confidence words at the start/end of a line: those are fingers,
+ * table texture or the receipt edge read as letters ("ai TUNAI", "BAGS IT AIR MINERAL").
+ */
+const KEEP = /^(t[o0]tal|tuna[i1lt!]|cash|kembali|debit|qris|ppn|dpp|harga|jual|belanja|bayar)$/i;
+export function cleanText(data: OcrData, minEdge = 20): string {
+  if (!data.blocks?.length) return '';
+  const out: string[] = [];
+  const weak = (w: OcrWord) => w.confidence < minEdge && !KEEP.test(w.text.replace(/[^\p{L}\p{N}!]/gu, ''));
+  for (const b of data.blocks) for (const p of b.paragraphs) for (const l of p.lines) {
+    const words = l.words.filter((w) => w.text.trim());
+    if (words.some((w) => w.confidence >= 60)) {
+      while (words.length && weak(words[0])) words.shift();
+      while (words.length && weak(words[words.length - 1])) words.pop();
+    }
+    if (words.length) out.push(words.map((w) => w.text).join(' '));
+  }
+  return out.join('\n');
+}
+
 export async function recognize(image: Blob, onProgress: (p: number, label: string) => void): Promise<string> {
   onProgress(0.02, 'Menyiapkan pembaca teks…');
   const { createWorker } = await import('tesseract.js');
@@ -30,8 +52,11 @@ export async function recognize(image: Blob, onProgress: (p: number, label: stri
     },
   });
   try {
-    const { data } = await worker.recognize(image);
-    return data.text || '';
+    // PSM 6 = "one uniform block of text". Tested on a real Indomaret photo: the default page segmentation
+    // skipped the TOTAL and date lines entirely, block mode read them correctly.
+    await worker.setParameters({ tessedit_pageseg_mode: '6' as never, preserve_interword_spaces: '1' });
+    const { data } = await worker.recognize(image, {}, { blocks: true, text: true });
+    return cleanText(data as unknown as OcrData) || data.text || '';
   } finally {
     await worker.terminate();
   }

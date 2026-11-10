@@ -61,6 +61,7 @@ export const IN_CATS = Object.keys(CATS).filter((k) => CATS[k].inc);
 
 // Keyword → category rules for the sentence parser. First match wins, so specific rules come first.
 export const KW: [RegExp, string, string][] = [
+  [/\b(air mineral|aqua|le minerale|galon)\b/, 'belanja', 'Kebutuhan harian'], // before "air" (PDAM) and "minum"
   [/\b(gofood|grabfood|shopeefood|pesan antar|delivery)\b/, 'makan', 'Pesan antar'],
   [/\b(kopi|ngopi|kopsu|latte|teh|boba|jus|minum|es)\b/, 'makan', 'Kopi & minuman'],
   [/\b(jajan|cemilan|snack|gorengan|roti)\b/, 'makan', 'Jajan'],

@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseAmount, findDate, cellDate } from '../src/money-text.ts';
 import { parseReceipt } from '../src/receipt.ts';
+import { cleanText } from '../src/ocr.ts';
 import { parseCSV, rowsToStatement, linesToStatement, guessRow } from '../src/statement.ts';
 import { DEFAULT_WALLETS } from '../src/model.ts';
 
@@ -41,6 +42,55 @@ KEMBALI             7.600
   assert.equal(r.total, 42400);
   assert.equal(r.date, '2026-11-10');
   assert.deepEqual(r.items.map((i) => i.amount), [13000, 16500, 12900]);
+});
+
+test('receipt: real Indomaret photo OCR text (address/NPWP/cashier anonymised)', () => {
+  // Structure and OCR noise copied from Tesseract output of a real receipt photo (block mode).
+  const text = `5. SP .
+dk Sa n x
+mn 1 PT INDOMARCOPRISMATAMA na
+SP DOMARE TE DUA Kesan B i
+Ti PANTAI INDAH KAPUK ea
+HI IPWP:001.111 222 3-444.000
+| NEW Oa CONTOH, RAYA :
+JL CONTOH RT.OO2, KEL CONTOH
+KEC CONTOH KOTA CONTOH, 10000
+ik 26.10.26-13:12/4.5.3/TMXY-123456/KASIR/02
+ia VIT AIR MINERAL 19 Lo 1 21500 21,500
+3 TOTAL BELANJA : 21,500
+a TUNAI : 50,000
+KEMBALI : 28,500
+PPN : DPP- 17,755 PPNz 2,131
+HARGA JUAL : 19,359
+2 KK AYANAN KONSUMEN
+SMS WAO811.1500,: LP 15005 .
+KONTAK @IND OMA ET On aro OMA`;
+  const r = parseReceipt(text, '2026-11-10');
+  assert.equal(r.total, 21500);
+  assert.equal(r.date, '2026-10-26');
+  assert.equal(r.merchant, 'Indomaret');
+  assert.deepEqual(r.storeCat, { cat: 'belanja', sub: 'Kebutuhan harian' });
+  assert.deepEqual(r.items, [{ name: 'VIT AIR MINERAL 19 L', amount: 21500 }]);
+  assert.equal(r.pay, 'cash');
+});
+
+test('receipt: OCR misread TUNAT still means cash', () => {
+  assert.equal(parseReceipt('TOKO\nTEH 5.000\nTOTAL 5.000\naa TUNAT : 10,000', '2026-11-10').pay, 'cash');
+});
+
+test('OCR clean-up drops low-confidence words at line edges only', () => {
+  const w = (text: string, confidence: number) => ({ text, confidence });
+  const data = { blocks: [{ paragraphs: [{ lines: [
+    { words: [w('—', 14), w('VIT', 36), w('AIR', 93), w('MINERAL', 95), w('21,500', 95)] },
+    { words: [w('ai', 9), w('TUNAI', 26), w(':', 84), w('50,000', 47)] },
+    { words: [w('x', 10), w('y', 12)] },
+  ] }] }] };
+  assert.equal(cleanText(data), 'VIT AIR MINERAL 21,500\nTUNAI : 50,000\nx y');
+});
+
+test('receipt: date next to a time wins over other number patterns', () => {
+  const r = parseReceipt('TOKO MAJU\nNO 05.09.26 REF\nKopi 18.000\nTOTAL 18.000\n03/11/2026 19:40', '2026-11-10');
+  assert.equal(r.date, '2026-11-03');
 });
 
 test('receipt: OCR noise (T0TAL) and no total keyword fallback', () => {
