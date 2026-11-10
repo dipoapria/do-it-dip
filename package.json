@@ -1,0 +1,25 @@
+{
+  "name": "do-it-dip",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Do it Dip — pencatat keuangan pribadi (PWA)",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --host",
+    "test": "node --test tests/"
+  },
+  "dependencies": {
+    "@fontsource-variable/bricolage-grotesque": "^5.3.0",
+    "@fontsource-variable/plus-jakarta-sans": "^5.3.0",
+    "dexie": "^4.4.7",
+    "lucide": "^1.71.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.7",
+    "vite-plugin-pwa": "^2.0.0"
+  }
+}
