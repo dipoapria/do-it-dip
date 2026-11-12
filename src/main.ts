@@ -1,6 +1,7 @@
 import '@fontsource-variable/bricolage-grotesque/opsz.css';
 import '@fontsource-variable/plus-jakarta-sans/wght.css';
 import './styles.css';
+import './lock-stories.css';
 import { registerSW } from 'virtual:pwa-register';
 import { start } from './app.ts';
 

@@ -36,9 +36,17 @@ export interface Settings {
   onboarded: boolean;
   theme: 'system' | 'light' | 'dark';
   lpLearned: boolean;
+  /** PIN lock: only a salted PBKDF2 hash is stored, never the PIN itself. */
+  pinHash: string;
+  pinSalt: string;
+  pinLen: number;
+  /** WebAuthn credential id (base64) for Face ID / Touch ID unlock on this device, or ''. */
+  bioId: string;
+  /** Lock again after the app was in the background this many seconds. */
+  lockAfter: number;
 }
 
-export const DEFAULT_SETTINGS: Settings = { name: '', onboarded: false, theme: 'system', lpLearned: false };
+export const DEFAULT_SETTINGS: Settings = { name: '', onboarded: false, theme: 'system', lpLearned: false, pinHash: '', pinSalt: '', pinLen: 4, bioId: '', lockAfter: 60 };
 
 export interface Category { n: string; c: string; i: string; subs: string[]; inc?: boolean }
 

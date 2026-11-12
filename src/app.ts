@@ -8,7 +8,10 @@ import {
   PiggyBank, TrendingUp, TrendingDown, ShieldCheck, X, Check, Calendar, Info, Brain, Delete, Copy, Trash2, Lock, Tags,
   CloudUpload, Download, Upload, MonitorSmartphone, Sun, Moon, User, Laptop, Store, Users, Layers, Pointer, Pencil, Palette,
   Presentation, Minimize, Flame, Clapperboard, Camera, ImagePlus, FileSpreadsheet, ScanLine, Receipt, KeyRound, TriangleAlert, RotateCcw,
+  ScanFace, PartyPopper, Play, Hourglass,
 } from 'lucide';
+import { initLock, lockNow, setupPin, verifyPin, pinOn, enableBio, bioAvailable } from './lock.ts';
+import { initStories, openStories, storiesReady } from './stories.ts';
 import { recognize, preprocess } from './ocr.ts';
 import { extract, NeedPassword } from './filetext.ts';
 import { parseReceipt } from './receipt.ts';
@@ -28,6 +31,7 @@ const ICONS = {
   TrendingDown, ShieldCheck, X, Check, Calendar, Info, Brain, Delete, Copy, Trash2, Lock, Tags, CloudUpload, Download, Upload,
   MonitorSmartphone, Sun, Moon, User, Laptop, Store, Users, Layers, Pointer, Pencil, Palette, Presentation, Minimize, Flame, Clapperboard,
   Camera, ImagePlus, FileSpreadsheet, ScanLine, Receipt, KeyRound, TriangleAlert, RotateCcw,
+  ScanFace, PartyPopper, Play, Hourglass,
 };
 function icons() { createIcons({ icons: ICONS, attrs: { 'stroke-width': 2.2 } }); }
 
@@ -150,6 +154,7 @@ function vHome() {
     <button data-a="add" data-mode="impor"><span class="qi" style="--c:#10B981"><i data-lucide="file-spreadsheet"></i></span>Impor mutasi</button>
     <button data-a="tab" data-t="1"><span class="qi" style="--c:#F0A010"><i data-lucide="chart-pie"></i></span>Rekap</button>
   </div>
+  ${storiesReady() ? `<button class="story-card st" style="--i:4" data-a="stories"><span class="sc-ic"><i data-lucide="clapperboard"></i></span><span><b>Rekap kilat minggu ini</b><small>6 kartu cerita · ketuk untuk memutar</small></span><span class="play"><i data-lucide="play"></i></span></button>` : ''}
   <div class="sec-h st" style="--i:4"><h3>7 hari terakhir</h3><small class="num">${money(wsum)}</small></div>
   <div class="card st" style="--i:4">
     <div class="week">${week.map((w, i) => `<div class="d ${w.d === today ? 'today' : ''}"><div class="b" style="height:${Math.max(6, (w.v / wmax) * 64)}px;--i:${i}"></div>${HARI[toD(w.d).getDay()]}</div>`).join('')}</div></div>
@@ -348,9 +353,16 @@ function vLainnya() {
   <div class="card"><h4>Profil</h4>
     <button class="set-row" data-a="rename"><span class="ic" style="--c:#13A894"><i data-lucide="user"></i></span><div class="t"><b>${esc(set.name || 'Tanpa nama')}</b><small>Nama sapaan di Beranda · ketuk untuk mengubah</small></div><i data-lucide="chevron-right"></i></button></div>
   <div class="card"><h4>Cadangan data <span class="status">${S.persisted ? 'Penyimpanan permanen aktif' : 'Di perangkat ini'}</span></h4>
-    <p class="about" style="margin:0 0 4px">Semua data tersimpan di perangkat ini. Cadangan online otomatis hadir di Tahap 2; sampai saat itu, ekspor cadangan secara rutin, misalnya seminggu sekali, lalu simpan di Files atau Google Drive.</p>
+    <p class="about" style="margin:0 0 4px">Semua data tersimpan di perangkat ini. Sampai cadangan online otomatis hadir, ekspor cadangan secara rutin, misalnya seminggu sekali, lalu simpan di Files atau Google Drive.</p>
     <div class="btn-row"><button class="btn2" data-a="backup"><i data-lucide="download"></i>Ekspor cadangan</button><button class="btn2" data-a="restore"><i data-lucide="upload"></i>Pulihkan dari file</button></div>
     <input type="file" id="restoreFile" accept="application/json,.json" hidden></div>
+  <div class="card"><h4>Keamanan</h4>
+    <button class="set-row" data-a="pinToggle"><span class="ic" style="--c:#8B5CF6"><i data-lucide="lock"></i></span><div class="t"><b>Kunci PIN</b><small>${pinOn() ? `Aktif · PIN ${set.pinLen} digit diminta saat aplikasi dibuka` : 'Minta PIN setiap aplikasi dibuka'}</small></div><span class="toggle ${pinOn() ? 'on' : ''}"></span></button>
+    ${pinOn() ? `<button class="set-row" data-a="pinChange"><span class="ic" style="--c:#3D8BFF"><i data-lucide="key-round"></i></span><div class="t"><b>Ubah PIN</b><small>Butuh PIN lama</small></div><i data-lucide="chevron-right"></i></button>
+    ${S.bioAvail ? `<button class="set-row" data-a="bioToggle"><span class="ic" style="--c:#13A894"><i data-lucide="scan-face"></i></span><div class="t"><b>Face ID / Touch ID</b><small>${set.bioId ? 'Aktif di perangkat ini' : 'Buka tanpa mengetik PIN'}</small></div><span class="toggle ${set.bioId ? 'on' : ''}"></span></button>` : ''}
+    <div class="set-row"><span class="ic" style="--c:#F0A010"><i data-lucide="hourglass"></i></span><div class="t"><b>Kunci otomatis</b><small>Setelah aplikasi ditinggal ke latar belakang</small></div></div>
+    <div class="seg" id="lockSeg"><span class="pill"></span>${[[0, 'Langsung'], [60, '1 menit'], [300, '5 menit']].map(([v, l]) => `<button class="${set.lockAfter === v ? 'on' : ''}" data-a="lockAfter" data-v="${v}">${l}</button>`).join('')}</div>` : ''}
+    <p class="about" style="margin:10px 0 0">Kunci PIN mencegah orang lain membuka Do it Dip di perangkat ini. Data tetap tersimpan di perangkat dan tidak dienkripsi, jadi tetap simpan cadangan di tempat aman.</p></div>
   <div class="card"><h4>Tampilan</h4>
     <div class="seg" id="themeSeg"><span class="pill"></span>${[['system', 'Sistem', 'monitor-smartphone'], ['light', 'Terang', 'sun'], ['dark', 'Gelap', 'moon']].map(([k, l, i]) => `<button class="${set.theme === k ? 'on' : ''}" data-a="theme" data-t="${k}"><i data-lucide="${i}"></i>${l}</button>`).join('')}</div></div>
   <div class="card"><h4>Kata kunci yang dipelajari</h4>
@@ -358,7 +370,7 @@ function vLainnya() {
     ${kw.length ? `<div class="kw">${kw.map(([w, v]) => `<button data-a="unlearn" data-w="${esc(w)}" style="--c:${CATS[v.cat]?.c || '#94A3B8'}">${esc(w)} → ${CATS[v.cat]?.n || v.cat}<i data-lucide="x"></i></button>`).join('')}</div>` : ''}</div>
   <div class="card"><h4>Data</h4>
     <button class="set-row danger-row" data-a="wipe"><span class="ic" style="--c:#F43F5E"><i data-lucide="trash-2"></i></span><div class="t"><b>Hapus semua data</b><small>Transaksi, dompet, dan pengaturan di perangkat ini</small></div></button></div>
-  <div class="card about"><h4>Tentang</h4>Do it Dip 0.1 · Tahap 1. ${TX().length.toLocaleString('id-ID')} transaksi tersimpan. Berikutnya: cadangan online otomatis, impor mutasi bank, foto struk, anggaran, dan rekap kilat.</div></div>`;
+  <div class="card about"><h4>Tentang</h4>Do it Dip 0.2 · Tahap 2. ${TX().length.toLocaleString('id-ID')} transaksi tersimpan. Berikutnya: cadangan online otomatis, anggaran, transaksi berulang, dan target tabungan.</div></div>`;
 }
 function placePill(seg) { if (!seg) return; const on = seg.querySelector('button.on'), pill = seg.querySelector('.pill'); if (!on || !pill) return; pill.style.width = on.offsetWidth + 'px'; pill.style.transform = `translateX(${on.offsetLeft - 4}px)`; }
 
@@ -372,7 +384,7 @@ function renderPanel(i, arg) {
     if (!store.data.settings.lpLearned) { const t = p.querySelector('.list .tx'); if (t) t.insertAdjacentHTML('beforeend', '<span class="lp-hint"><i data-lucide="pointer"></i>Tahan</span>'); }
   }
   if (i === 2) { layoutStack(); initCards(); bindStack(); }
-  if (i === 3) placePill($('themeSeg'));
+  if (i === 3) { placePill($('themeSeg')); placePill($('lockSeg')); }
 }
 function renderAll() { for (let i = 0; i < 4; i++) renderPanel(i); icons(); }
 function refresh() { S.dispTotal = totalBalance(); renderAll(); setOdo($('odo'), S.dispTotal, true); if (S.drill) rerenderDrill(); renderDesk(); }
@@ -381,7 +393,7 @@ function playPanel(i) {
   const p = PANELS[i]; p.classList.remove('pre'); p.classList.remove('play'); void p.offsetWidth; p.classList.add('play');
   p.querySelectorAll('[data-count]').forEach(countUp);
   if (!reduced()) p.querySelectorAll('.seg[data-len]').forEach((s, j) => { const len = Number(s.dataset.len), C = Number(s.dataset.c); s.animate([{ strokeDasharray: `0 ${C}` }, { strokeDasharray: `${len} ${C}` }], { duration: 800, delay: 150 + j * 80, easing: 'cubic-bezier(.3,.9,.3,1)', fill: 'backwards' }); });
-  if (i === 3) placePill($('themeSeg'));
+  if (i === 3) { placePill($('themeSeg')); placePill($('lockSeg')); }
 }
 let tabCenters = [];
 function measureTabs() { const tb = $('tabbar'), r = tb.getBoundingClientRect(); tabCenters = [...tb.querySelectorAll('.tab')].map((b) => { const q = b.getBoundingClientRect(); return q.left + q.width / 2 - r.left; }); }
@@ -1116,6 +1128,20 @@ function onClick(e) {
       const t = store.addTx(rec); markFresh([t]);
       const src = $('mamt'); S.m = null; celebrate((m.type === 'in' ? '+' : '') + rp(amt), m.type, src, `Tercatat: ${rp(amt)}`); break;
     }
+    /* security + stories */
+    case 'stories': openStories(); break;
+    case 'pinToggle': {
+      const redraw = () => { renderPanel(3); icons(); };
+      if (pinOn()) verifyPin('Masukkan PIN untuk mematikan kunci', () => { ['pinHash', 'pinSalt', 'bioId'].forEach((k) => store.setSetting(k, '')); redraw(); toast('Kunci PIN dimatikan'); });
+      else setupPin(redraw);
+      break;
+    }
+    case 'pinChange': verifyPin('Masukkan PIN lama', () => setupPin(() => { renderPanel(3); icons(); })); break;
+    case 'bioToggle':
+      if (store.data.settings.bioId) { store.setSetting('bioId', ''); renderPanel(3); icons(); toast('Face ID dimatikan'); }
+      else enableBio().then((ok) => { renderPanel(3); icons(); toast(ok ? 'Face ID aktif' : 'Face ID tidak diaktifkan'); });
+      break;
+    case 'lockAfter': store.setSetting('lockAfter', Number(d.v)); document.querySelectorAll('#lockSeg button').forEach((b) => b.classList.toggle('on', b.dataset.v === d.v)); placePill($('lockSeg')); break;
     /* struk */
     case 'stRetry': S.struk = { phase: 'idle' }; rerenderMode(); break;
     case 'stset': { const f = S.struk.form; f[d.k] = d.v; if (d.k === 'cat') f.sub = CATS[d.v].subs[0]; const sc = $('cobody').scrollTop; rerenderMode(); $('cobody').scrollTop = sc; break; }
@@ -1181,7 +1207,11 @@ export async function start() {
   PANELS = [0, 1, 2, 3].map((i) => $('p' + i));
   bindEvents(); bindTrack(); bindDrill();
   initDesk({ icons, onPhoneShown });
+  initLock({ icons, toast, onWipe: async () => { await store.wipe(); afterDataReset(); } });
+  initStories({ icons, toast, goRekap: () => goTab(1) });
+  if (store.data.settings.onboarded) lockNow(); // lock screen first, before anything is visible
   store.requestPersist().then((ok) => { S.persisted = ok; });
+  bioAvailable().then((ok) => { S.bioAvail = ok; if (ok && PANELS[3]) { renderPanel(3); icons(); } });
   renderAll(); setPos(0); PANELS[0].classList.add('play');
   requestAnimationFrame(() => { measureTabs(); moveInd(0); });
   if (!store.data.settings.onboarded) { showOnboarding(); return; }

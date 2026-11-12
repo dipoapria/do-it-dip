@@ -39,7 +39,7 @@ Perbarui file ini setiap ada fitur yang selesai, supaya tidak ada yang terlewat.
 | Rekap: donat → kategori → subkategori → transaksi | mockup v1 & v2 | ✅ |
 | Grafik harian, tren bulanan, catatan perencana keuangan | mockup v1 & v2 | ✅ |
 | Dashboard laptop + mode presentasi | permintaan | ✅ |
-| **Rekap kilat (cerita mingguan, transisi kubus)** | mockup v2 | ⏳ |
+| **Rekap kilat (cerita mingguan, transisi kubus)** | mockup v2 | ✅ 6 kartu dari data 7 hari terakhir, muncul di Beranda setelah ada ≥3 pengeluaran minggu ini |
 | Kekayaan bersih (aset − utang) | rencana awal | ⏳ (butuh fitur utang) |
 | Pemeriksaan rasio cicilan terhadap pendapatan | rencana awal | ⏳ (butuh fitur utang) |
 
@@ -51,7 +51,7 @@ Perbarui file ini setiap ada fitur yang selesai, supaya tidak ada yang terlewat.
 | Cadangan manual (ekspor/pulihkan .json) | rencana awal | ✅ |
 | Sembunyikan nominal (blur) & intip saldo kartu | mockup v2 | ✅ |
 | Tema terang/gelap dengan efek menyebar | mockup v2 | ✅ |
-| **Kunci PIN saat aplikasi dibuka** | rencana awal (Tahap 1), mockup v1 & v2 | ⏳ terlewat di Tahap 1 |
+| **Kunci PIN saat aplikasi dibuka** | rencana awal (Tahap 1), mockup v1 & v2 | ✅ PIN 4/6 digit (hash PBKDF2), Face ID/Touch ID, kunci otomatis (langsung/1/5 menit), tampilan tertutup di pengalih aplikasi |
 | **Cadangan online otomatis + sinkron HP ↔ laptop** | permintaan awal | ⏳ |
 | Ekspor ke Excel | mockup v1 & v2 | ⏳ |
 
