@@ -28,7 +28,7 @@ Perbarui file ini setiap ada fitur yang selesai, supaya tidak ada yang terlewat.
 | **Anggaran per kategori + peringatan** | rencana awal | ✅ batas bulanan per kategori (bisa diisi dari rata-rata 3 bulan), kartu di Rekap dengan penanda posisi hari ini, ringkasan sisa & per hari di Beranda, peringatan sekali saat 80% dan saat terlewati; ikut cadangan & sinkron |
 | **Target tabungan (dana darurat, liburan, DP)** | rencana awal | ✅ di Dompet: target + tenggat, sisihkan/ambil (uang tetap di dompet), saldo bebas, perlu disisihkan per bulan, perkiraan tercapai dari laju 3 bulan, saran dana darurat 6× pengeluaran |
 | **Utang & piutang** | rencana awal | ✅ di Dompet: pinjaman tunai (tidak dihitung pemasukan/pengeluaran), kredit/paylater (cicilan = pengeluaran Tagihan · Cicilan), piutang; catat pembayaran, sisa & progres, cicilan per bulan, jatuh tempo |
-| Buku terpisah Freelance & Usaha | rencana awal, mockup | 🟡 baru tampilan "aktifkan nanti" |
+| **Buku terpisah Freelance & Usaha** | rencana awal, mockup | ✅ aktifkan dari pemilih buku atau Dompet; catatan, rekap, anggaran, cerita mingguan, Excel, dan laptop per buku; kategori khusus (Honor proyek, Alat & software / Penjualan, Bahan & stok, Operasional) + kata kunci kalimatnya; dompet dipakai bersama atau khusus satu buku; Beranda buku menampilkan laba bersih bulan ini dengan warna khas |
 | Buku bersama pasangan/keluarga | rencana awal (jangka panjang) | ⏳ |
 
 ## Melihat rekap
@@ -63,4 +63,5 @@ Perbarui file ini setiap ada fitur yang selesai, supaya tidak ada yang terlewat.
 - **Transaksi berulang:** src/recurring.ts (jadwal murni + tes). Id transaksi tetap per aturan dan tanggal (`r-<aturan>-<tanggal>`), dan dijalankan setelah sinkron cloud, jadi dua perangkat tidak mencatat dua kali.
 - **Tabungan & utang:** src/plan.ts (hitungan murni + tes). Pinjaman tunai bergerak lewat dompet semu `debt:<id>` sebagai transfer, jadi saldo dompet benar tanpa mengubah pemasukan/pengeluaran.
 - **Anggaran:** src/budget.ts (hitungan murni + tes), disimpan di pengaturan `budgets`.
+- **Buku:** `Tx.book` dan `Wallet.book` (`pribadi` = dompet bersama). store.bookTxs()/bookWallets() menyaring tampilan; saldo dompet selalu dihitung dari semua buku. Buku terpilih disimpan per perangkat (`curBook`), daftar buku aktif ikut sinkron.
 - **Excel:** src/excel.ts membangun isi lembar (dites di Node) lalu ditulis dengan write-excel-file (dimuat hanya saat ekspor).

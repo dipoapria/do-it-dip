@@ -42,7 +42,14 @@ const fail = (e: unknown) => {
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
 
 /** Settings that belong to this device only: never put in backups, never overwritten by a restore. */
-export const DEVICE_KEYS: (keyof Settings)[] = ['pinHash', 'pinSalt', 'pinLen', 'bioId', 'lockAfter', 'theme', 'cloudEmail', 'cloudLastSync', 'cloudDirty', 'lpLearned'];
+export const DEVICE_KEYS: (keyof Settings)[] = ['pinHash', 'pinSalt', 'pinLen', 'bioId', 'lockAfter', 'theme', 'cloudEmail', 'cloudLastSync', 'cloudDirty', 'lpLearned', 'curBook'];
+
+/* ---------- books: Pribadi / Freelance / Usaha ---------- */
+export const curBook = (): string => (data.settings.books || ['pribadi']).includes(data.settings.curBook) ? data.settings.curBook : 'pribadi';
+/** Transactions of the book on screen. Balances always use all books (a wallet holds one amount). */
+export const bookTxs = (): Tx[] => { const b = curBook(); return data.txs.filter((t) => (t.book || 'pribadi') === b); };
+/** Wallets shown in the book on screen: shared wallets (book 'pribadi') plus the book's own. */
+export const bookWallets = (): Wallet[] => { const b = curBook(); return data.wallets.filter((w) => !w.book || w.book === 'pribadi' || w.book === b); };
 
 /* ---------- change signal (drives automatic online backup) ---------- */
 let changeListener: (() => void) | null = null;
@@ -68,7 +75,7 @@ export async function requestPersist(): Promise<boolean> {
 export type NewTx = Omit<Tx, 'id' | 'createdAt' | 'updatedAt' | 'book'> & { book?: string };
 export function addTx(o: NewTx): Tx {
   const now = Date.now();
-  const t: Tx = { book: 'pribadi', ...o, id: uid(), createdAt: now, updatedAt: now };
+  const t: Tx = { book: curBook(), ...o, id: uid(), createdAt: now, updatedAt: now };
   data.txs.push(t);
   db.tx.put(t).catch(fail);
   changed();

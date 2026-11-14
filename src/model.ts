@@ -55,11 +55,16 @@ export interface Settings {
   cloudDirty: boolean;
   /** Monthly spending limit per expense category (rupiah); missing or 0 = no limit. */
   budgets: Record<string, number>;
+  /** Budgets of the other books, by book id. */
+  bookBudgets: Record<string, Record<string, number>>;
+  /** Books in use (pribadi always), and the one shown on this device. */
+  books: string[];
+  curBook: string;
 }
 
-export const DEFAULT_SETTINGS: Settings = { name: '', onboarded: false, theme: 'system', lpLearned: false, pinHash: '', pinSalt: '', pinLen: 4, bioId: '', lockAfter: 60, cloudEmail: '', cloudLastSync: '', cloudDirty: false, budgets: {} };
+export const DEFAULT_SETTINGS: Settings = { name: '', onboarded: false, theme: 'system', lpLearned: false, pinHash: '', pinSalt: '', pinLen: 4, bioId: '', lockAfter: 60, cloudEmail: '', cloudLastSync: '', cloudDirty: false, budgets: {}, bookBudgets: {}, books: ['pribadi'], curBook: 'pribadi' };
 
-export interface Category { n: string; c: string; i: string; subs: string[]; inc?: boolean }
+export interface Category { n: string; c: string; i: string; subs: string[]; inc?: boolean; /** only offered in this book */ book?: string }
 
 export const CATS: Record<string, Category> = {
   makan: { n: 'Makan & Minum', c: '#FF7A45', i: 'utensils', subs: ['Makan siang', 'Kopi & minuman', 'Pesan antar', 'Jajan'] },
@@ -74,9 +79,51 @@ export const CATS: Record<string, Category> = {
   gaji: { n: 'Gaji', c: '#10B981', i: 'briefcase', subs: ['Gaji bulanan'], inc: true },
   bonus: { n: 'Bonus & Honor', c: '#F59E0B', i: 'gift', subs: ['Honor', 'Bonus'], inc: true },
   masuk_lain: { n: 'Pemasukan lain', c: '#06B6D4', i: 'coins', subs: ['Cashback', 'Bunga', 'Lainnya'], inc: true },
+  // Freelance book
+  proyek: { n: 'Honor proyek', c: '#0EA5E9', i: 'briefcase-business', subs: ['Proyek', 'DP proyek', 'Pelunasan'], inc: true, book: 'freelance' },
+  alat: { n: 'Alat & software', c: '#6366F1', i: 'laptop', subs: ['Software & langganan', 'Perangkat', 'Internet kerja', 'Pajak & biaya'], book: 'freelance' },
+  // Usaha book
+  penjualan: { n: 'Penjualan', c: '#16A34A', i: 'store', subs: ['Penjualan tunai', 'Penjualan online', 'Pesanan'], inc: true, book: 'usaha' },
+  modal: { n: 'Bahan & stok', c: '#B45309', i: 'package', subs: ['Bahan baku', 'Stok barang', 'Kemasan'], book: 'usaha' },
+  operasional: { n: 'Operasional', c: '#64748B', i: 'wrench', subs: ['Sewa tempat', 'Gaji karyawan', 'Listrik & air', 'Promosi', 'Ongkir'], book: 'usaha' },
 };
-export const OUT_CATS = Object.keys(CATS).filter((k) => !CATS[k].inc);
-export const IN_CATS = Object.keys(CATS).filter((k) => CATS[k].inc);
+export const OUT_CATS = Object.keys(CATS).filter((k) => !CATS[k].inc && !CATS[k].book);
+export const IN_CATS = Object.keys(CATS).filter((k) => CATS[k].inc && !CATS[k].book);
+/** Categories offered in a book: its own first, then the general ones. */
+export function catsFor(book: string, inc: boolean): string[] {
+  const own = Object.keys(CATS).filter((k) => CATS[k].book === book && !!CATS[k].inc === inc);
+  return own.concat(inc ? IN_CATS : OUT_CATS);
+}
+
+export interface Book { n: string; c: string; i: string; d: string }
+export const BOOKS: Record<string, Book> = {
+  pribadi: { n: 'Pribadi', c: '#13A894', i: 'user', d: 'Gaji dan pengeluaran harian' },
+  freelance: { n: 'Freelance', c: '#0EA5E9', i: 'laptop', d: 'Proyek, klien, dan alat kerja' },
+  usaha: { n: 'Usaha', c: '#F0A010', i: 'store', d: 'Penjualan, modal, dan operasional' },
+};
+/** Keyword rules that only apply inside a book (checked before the general ones). */
+export const BOOK_KW: Record<string, [RegExp, string, string][]> = {
+  freelance: [
+    [/\b(dp|uang muka)\b/, 'proyek', 'DP proyek'],
+    [/\b(pelunasan|lunas|invoice)\b/, 'proyek', 'Pelunasan'],
+    [/\b(proyek|project|klien|client|honor|fee|bayaran)\b/, 'proyek', 'Proyek'],
+    [/\b(software|domain|hosting|canva|adobe|figma|lisensi|plugin|template|chatgpt|claude)\b/, 'alat', 'Software & langganan'],
+    [/\b(laptop|mouse|keyboard|monitor|kamera|tripod|mic|headset)\b/, 'alat', 'Perangkat'],
+    [/\b(pajak|pph|biaya admin)\b/, 'alat', 'Pajak & biaya'],
+  ],
+  usaha: [
+    [/\b(jual|terjual|penjualan|laku|omzet|omset)\b/, 'penjualan', 'Penjualan tunai'],
+    [/\b(pesanan|orderan)\b/, 'penjualan', 'Pesanan'],
+    [/\b(shopee|tokopedia|tiktok|marketplace)\b.*\b(cair|pencairan|masuk)\b/, 'penjualan', 'Penjualan online'],
+    [/\b(bahan|bahan baku|kulakan|belanja bahan)\b/, 'modal', 'Bahan baku'],
+    [/\b(stok|restok|restock|grosir)\b/, 'modal', 'Stok barang'],
+    [/\b(kemasan|packing|plastik|box|kardus|stiker|label)\b/, 'modal', 'Kemasan'],
+    [/\b(sewa|kontrakan|lapak)\b/, 'operasional', 'Sewa tempat'],
+    [/\b(karyawan|pegawai|gaji karyawan|upah)\b/, 'operasional', 'Gaji karyawan'],
+    [/\b(promosi|iklan|ads|endorse|brosur)\b/, 'operasional', 'Promosi'],
+    [/\b(ongkir|kurir|ekspedisi|jne|jnt|sicepat)\b/, 'operasional', 'Ongkir'],
+  ],
+};
 
 // Keyword → category rules for the sentence parser. First match wins, so specific rules come first.
 export const KW: [RegExp, string, string][] = [

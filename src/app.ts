@@ -9,7 +9,7 @@ import {
   CloudUpload, Download, Upload, MonitorSmartphone, Sun, Moon, User, Laptop, Store, Users, Layers, Pointer, Pencil, Palette,
   Presentation, Minimize, Flame, Clapperboard, Camera, ImagePlus, FileSpreadsheet, ScanLine, Receipt, KeyRound, TriangleAlert, RotateCcw,
   ScanFace, PartyPopper, Play, Hourglass, CloudDownload, RefreshCw, LogOut, Mail, LogIn, Repeat, FileDown, SkipForward, CalendarClock,
-  HandCoins, Handshake, Target, Plane, Car, Bike, Heart, Baby, Gem,
+  HandCoins, Handshake, Target, Plane, Car, Bike, Heart, Baby, Gem, BriefcaseBusiness, Package, Wrench,
 } from 'lucide';
 import { allocated, debtDone, debtLeft, debtPaid, etaMonths, goalLeft, goalPct, goalSaved, monthlyNeed, netWorth, openingTx, paymentTx, isDebtWallet, monthlyInstalments, dsr } from './plan.ts';
 import { budgetSummary, levelOf, newAlerts, suggestBudgets } from './budget.ts';
@@ -24,7 +24,7 @@ import { guessRow, linesToStatement, rowsToStatement } from './statement.ts';
 import { KW } from './model.ts';
 import { initDesk, render as renderDesk, sync as syncDesk } from './desk.ts';
 import { addDays, addMonths, BLN, BULAN, dayLabel, daysIn, digitsOnly, esc, fmtN, HARI, HARI_P, longDate, monthName, pad, pct, rp, shortTxt, toD, todayStr } from './format.ts';
-import { CATS, DEFAULT_WALLETS, IN_CATS, OUT_CATS, WALLET_COLORS, WALLET_ICON } from './model.ts';
+import { BOOK_KW, BOOKS, CATS, catsFor, DEFAULT_WALLETS, IN_CATS, OUT_CATS, WALLET_COLORS, WALLET_ICON } from './model.ts';
 import { highlightHTML, parseText } from './parser.ts';
 import { balance, monthList, stats } from './stats.ts';
 import * as store from './store.ts';
@@ -37,7 +37,7 @@ const ICONS = {
   MonitorSmartphone, Sun, Moon, User, Laptop, Store, Users, Layers, Pointer, Pencil, Palette, Presentation, Minimize, Flame, Clapperboard,
   Camera, ImagePlus, FileSpreadsheet, ScanLine, Receipt, KeyRound, TriangleAlert, RotateCcw,
   ScanFace, PartyPopper, Play, Hourglass, CloudDownload, RefreshCw, LogOut, Mail, LogIn, Repeat, FileDown, SkipForward, CalendarClock,
-  HandCoins, Handshake, Target, Plane, Car, Bike, Heart, Baby, Gem,
+  HandCoins, Handshake, Target, Plane, Car, Bike, Heart, Baby, Gem, BriefcaseBusiness, Package, Wrench,
 };
 function icons() { createIcons({ icons: ICONS, attrs: { 'stroke-width': 2.2 } }); }
 
@@ -58,12 +58,18 @@ const later = (ms, fn) => { const t = setTimeout(fn, ms); S.timers.push(t); retu
 function onEnd(anim, ms, fn) { let done = false; const go = () => { if (done) return; done = true; fn(); }; anim.onfinish = go; setTimeout(go, ms + 150); }
 const clearTimers = () => { S.timers.forEach(clearTimeout); S.timers = []; };
 
-const TX = () => store.data.txs;
-const WL = () => store.data.wallets.slice().sort((a, b) => a.order - b.order);
+const TX = () => store.bookTxs();
+const WL = () => store.bookWallets().slice().sort((a, b) => a.order - b.order);
+const BK = () => store.curBook();
+const isPersonal = () => BK() === 'pribadi';
+const OUTC = () => catsFor(BK(), false);
+const INC = () => catsFor(BK(), true);
+/** Hero number: total balance in Pribadi; this month's profit in Freelance/Usaha (their money often sits in shared wallets). */
+function heroVal() { if (isPersonal()) return totalBalance(); const st = stats(TX(), T().slice(0, 7)); return Math.abs(st.inc - st.out); }
 const GHOST = (id) => ({ id, name: 'Dompet terhapus', short: '?', group: 'Tunai', color: '#94A3B8', init: 0, order: 99, aliases: [], book: 'pribadi' });
 const W = (id) => store.data.wallets.find((w) => w.id === id) || (isDebtWallet(id) ? debtPseudo(id) : GHOST(id));
 function debtPseudo(id) { const d = store.data.debts.find((x) => 'debt:' + x.id === id); return { ...GHOST(id), name: d ? (d.kind === 'utang' ? 'Pinjaman ' : 'Dipinjam ') + d.name : 'Utang (dihapus)', color: d ? DEBT_C[d.kind] : '#94A3B8' }; }
-const bal = (w) => balance(TX(), typeof w === 'string' ? W(w) : w);
+const bal = (w) => balance(store.data.txs, typeof w === 'string' ? W(w) : w);
 const totalBalance = () => WL().reduce((s, w) => s + bal(w), 0);
 const sorted = (list = TX()) => list.slice().sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b.createdAt - a.createdAt));
 const catOf = (t) => (t.type === 'tf' ? (t.debt ? debtCat(t) : { n: 'Transfer', c: '#3D7BFF', i: 'arrow-left-right' }) : CATS[t.cat] || CATS.lain);
@@ -77,14 +83,14 @@ function defaults() {
   const cash = (ws.find((w) => w.group === 'Tunai') || ws.find((w) => w.group === 'E-wallet') || ws[0] || GHOST('x')).id;
   return { bank, cash };
 }
-const ctx = () => ({ today: T(), learned: store.data.learned, wallets: WL().map((w) => ({ id: w.id, aliases: w.aliases?.length ? w.aliases : [w.name.toLowerCase()] })), defaults: defaults() });
+const ctx = () => ({ today: T(), learned: store.data.learned, wallets: WL().map((w) => ({ id: w.id, aliases: w.aliases?.length ? w.aliases : [w.name.toLowerCase()] })), defaults: defaults(), kw: BOOK_KW[BK()] || [] });
 function tfNote(p) {
   const to = W(p.to);
   if (p.note === 'Tarik tunai') return to.group === 'Tunai' ? 'Tarik tunai' : `Tarik ke ${to.name}`;
   if (p.note === 'Tabungan') return `Tabungan ke ${to.name}`;
   return to.group === 'E-wallet' ? `Isi saldo ${to.name}` : `Transfer ke ${to.name}`;
 }
-const newManual = () => ({ type: 'out', amt: '', cat: 'makan', sub: 'Makan siang', wallet: defaults().cash, to: defaults().bank, date: T(), note: '', justTyped: false });
+const newManual = () => ({ type: 'out', amt: '', cat: OUTC()[0], sub: CATS[OUTC()[0]].subs[0], wallet: defaults().cash, to: defaults().bank, date: T(), note: '', justTyped: false });
 
 /* ================= odometer + counters ================= */
 function odoShape(el, value) {
@@ -143,11 +149,11 @@ function vHome() {
   return `<div class="inner">
   <header class="top st" style="--i:0">
     <div class="logo"><img class="app-logo" src="./icons/logo-152.png" alt="Do it Dip" width="48" height="48"><div style="min-width:0"><div class="subt">${greet},</div><div class="hello">${esc(store.data.settings.name || 'kamu')}</div></div></div>
-    <button class="pillbtn" data-a="books"><i data-lucide="book-open"></i>Pribadi<i data-lucide="chevron-down"></i></button>
+    <button class="pillbtn" data-a="books" style="--c:${BOOKS[BK()].c}"><i data-lucide="${BOOKS[BK()].i}"></i>${BOOKS[BK()].n}<i data-lucide="chevron-down"></i></button>
   </header>
-  <section class="hero t-${tod} st" style="--i:1" id="hero"><div class="glare"></div>
-    <div class="hero-row"><span class="lbl">Total saldo · ${WL().length} dompet</span><button class="eye" data-a="hide" aria-label="Sembunyikan atau tampilkan nominal"><i data-lucide="${app().classList.contains('hid') ? 'eye-off' : 'eye'}"></i></button></div>
-    <div class="big m" id="odo" aria-label="${rp(totalBalance())}"></div>
+  <section class="hero t-${tod} book-${BK()} st" style="--i:1" id="hero"><div class="glare"></div>
+    <div class="hero-row"><span class="lbl">${isPersonal() ? `Total saldo · ${WL().length} dompet` : `${st.inc - st.out < 0 ? 'Rugi' : 'Laba bersih'} ${mon} · buku ${BOOKS[BK()].n}`}</span><button class="eye" data-a="hide" aria-label="Sembunyikan atau tampilkan nominal"><i data-lucide="${app().classList.contains('hid') ? 'eye-off' : 'eye'}"></i></button></div>
+    <div class="big m${!isPersonal() && st.inc - st.out < 0 ? ' neg' : ''}" id="odo" aria-label="${rp(heroVal())}"></div>
     <div class="hero-split">
       <div><span><i data-lucide="arrow-down-left"></i>Masuk ${mon}</span><b>${money(st.inc)}</b></div>
       <div><span><i data-lucide="arrow-up-right"></i>Keluar ${mon}</span><b>${money(st.out)}</b></div>
@@ -224,14 +230,14 @@ function insights(mk, st, months) {
     const avgOut = full.reduce((a, b) => a + b, 0) / full.length, months2 = totalBalance() / avgOut;
     out.push({ c: '#8B5CF6', i: 'shield-check', t: `Dana darurat cukup ${Math.max(0, months2).toFixed(1).replace('.', ',')} bulan`, d: `Patokan umum: 3–6 kali pengeluaran bulanan (rata-rata ${rp(avgOut)}).`, prog: Math.max(0, Math.min(1, months2 / 6)) });
   }
-  const inst = monthlyInstalments(store.data.debts, TX());
+  const inst = isPersonal() ? monthlyInstalments(store.data.debts, TX()) : 0;
   if (inst > 0) {
     const r = dsr(inst, st.inc);
     out.push(r == null
       ? { c: '#F0A010', i: 'hand-coins', t: `Cicilan ${rp(inst)}/bulan`, d: 'Belum ada pemasukan di bulan ini untuk dibandingkan. Patokan aman: total cicilan maksimal 30% dari pemasukan.' }
       : { c: r <= 0.3 ? '#10B981' : r <= 0.4 ? '#F0A010' : '#F43F5E', i: 'hand-coins', t: `Cicilan ${pct(r)} dari pemasukan`, d: r <= 0.3 ? `${rp(inst)}/bulan, masih di bawah batas aman 30%. Hindari menambah cicilan baru sampai ada yang lunas.` : `${rp(inst)}/bulan, di atas batas aman 30%. Dahulukan melunasi utang berbunga tertinggi dan tunda cicilan baru.`, prog: Math.min(1, r / 0.5) });
   }
-  if (store.data.debts.length) {
+  if (isPersonal() && store.data.debts.length) {
     const nw = netWorth(totalBalance(), store.data.debts, TX());
     out.push({ c: nw.net >= 0 ? '#13A894' : '#F43F5E', i: 'landmark', t: `Kekayaan bersih ${rp(nw.net)}`, d: `Saldo dompet ${rp(nw.cash)} + piutang ${rp(nw.receivable)} − utang ${rp(nw.owed)}.` });
   }
@@ -311,12 +317,9 @@ function vDompet() {
   <div id="wdetail" class="wdetail"></div>
   <div class="books-sec">
     <button class="btn2 dash" data-a="walletNew"><i data-lucide="plus"></i>Tambah bank atau e-wallet</button>
-    <div id="planSec">${planHTML()}</div>
+    ${isPersonal() ? `<div id="planSec">${planHTML()}</div>` : ''}
     <div class="sec-h"><h3>Buku keuangan</h3><small>terpisah satu sama lain</small></div>
-    <div class="books">
-      <div class="book on"><span class="ic" style="--c:#13A894"><i data-lucide="user"></i></span><b>Pribadi</b><small>Aktif sekarang</small></div>
-      <button class="book off" data-a="toast" data-msg="Buku Freelance diaktifkan saat Anda mulai freelance"><span class="ic" style="--c:#06B6D4"><i data-lucide="laptop"></i></span><b>Freelance</b><small>Aktifkan nanti</small></button>
-      <button class="book off" data-a="toast" data-msg="Buku Usaha diaktifkan saat usaha Anda berjalan"><span class="ic" style="--c:#F0A010"><i data-lucide="store"></i></span><b>Usaha</b><small>Aktifkan nanti</small></button>
+    <div class="books">${bookRows(true)}
     </div>
   </div></div>`;
 }
@@ -403,7 +406,7 @@ function vLainnya() {
   <div class="card"><h4>Data</h4>
     <button class="set-row" data-a="excel"><span class="ic" style="--c:#1E9E4F"><i data-lucide="file-down"></i></span><div class="t"><b>Ekspor ke Excel</b><small>Ringkasan, transaksi, dan per kategori (.xlsx)</small></div><i data-lucide="chevron-right"></i></button>
     <button class="set-row danger-row" data-a="wipe"><span class="ic" style="--c:#F43F5E"><i data-lucide="trash-2"></i></span><div class="t"><b>Hapus semua data</b><small>Transaksi, dompet, dan pengaturan di perangkat ini</small></div></button></div>
-  <div class="card about"><h4>Tentang</h4>Do it Dip 0.5 · Tahap 5. ${TX().length.toLocaleString('id-ID')} transaksi tersimpan. Berikutnya: buku Freelance & Usaha, lalu buku keluarga.</div></div>`;
+  <div class="card about"><h4>Tentang</h4>Do it Dip 0.6 · Tahap 6. ${store.data.txs.length.toLocaleString('id-ID')} transaksi tersimpan di semua buku. Berikutnya: buku keluarga bersama pasangan.</div></div>`;
 }
 function placePill(seg) { if (!seg) return; const on = seg.querySelector('button.on'), pill = seg.querySelector('.pill'); if (!on || !pill) return; pill.style.width = on.offsetWidth + 'px'; pill.style.transform = `translateX(${on.offsetLeft - 4}px)`; }
 
@@ -420,7 +423,7 @@ function renderPanel(i, arg) {
   if (i === 3) { placePill($('themeSeg')); placePill($('lockSeg')); }
 }
 function renderAll() { checkBudgets(); for (let i = 0; i < 4; i++) renderPanel(i); icons(); }
-function refresh() { S.dispTotal = totalBalance(); renderAll(); setOdo($('odo'), S.dispTotal, true); if (S.drill) rerenderDrill(); renderDesk(); }
+function refresh() { S.dispTotal = heroVal(); renderAll(); setOdo($('odo'), S.dispTotal, true); if (S.drill) rerenderDrill(); renderDesk(); }
 function onPhoneShown() { tabCenters = []; refresh(); requestAnimationFrame(() => { measureTabs(); moveInd(S.pos); placePill($('themeSeg')); }); }
 function playPanel(i) {
   const p = PANELS[i]; p.classList.remove('pre'); p.classList.remove('play'); void p.offsetWidth; p.classList.add('play');
@@ -634,7 +637,7 @@ function mStruk() {
   <span class="lab">Total</span><input class="field amt-field" id="stAmt" inputmode="numeric" value="${f.amount ? fmtN(f.amount) : ''}" placeholder="Rp0" autocomplete="off">
   <span class="lab">Catatan</span><input class="field" id="stNote" maxlength="60" value="${esc(f.note)}" autocomplete="off">
   <span class="lab">Tanggal${r.date ? '' : ' <em class="from-receipt warn">· tidak terbaca, diisi hari ini</em>'}</span><input class="field" type="date" id="stDate" value="${f.date}" max="${T()}">
-  <span class="lab">Kategori</span><div class="hscroll">${OUT_CATS.map((k) => `<button class="chip cat ${f.cat === k ? 'on' : ''}" style="--c:${CATS[k].c}" data-a="stset" data-k="cat" data-v="${k}"><i data-lucide="${CATS[k].i}"></i>${CATS[k].n}</button>`).join('')}</div>
+  <span class="lab">Kategori</span><div class="hscroll">${OUTC().map((k) => `<button class="chip cat ${f.cat === k ? 'on' : ''}" style="--c:${CATS[k].c}" data-a="stset" data-k="cat" data-v="${k}"><i data-lucide="${CATS[k].i}"></i>${CATS[k].n}</button>`).join('')}</div>
   <div class="hscroll">${c.subs.map((x) => `<button class="chip ${f.sub === x ? 'on' : ''}" data-a="stset" data-k="sub" data-v="${esc(x)}">${esc(x)}</button>`).join('')}</div>
   <span class="lab">Dibayar pakai${r.pay ? ` <em class="from-receipt">· struk: ${PAY_LABEL[r.pay] || r.pay}</em>` : ''}</span><div class="hscroll">${wchips}</div>
   ${r.items.length ? `<details class="st-more"><summary>${r.items.length} barang terbaca</summary>${r.items.map((it) => `<div class="kv"><span>${esc(it.name)}</span><b>${rp(it.amount)}</b></div>`).join('')}</details>` : ''}
@@ -686,7 +689,7 @@ function mImpor() {
       <div class="mm"><small class="d">${dayLabel(r.date, T())}${r.dup ? ' · <b>sudah ada?</b>' : ''}</small><code>${esc(r.desc)}</code>
       <button class="chip cat sm ${s.pick === i ? 'on' : ''}" style="--c:${col}" data-a="impPick" data-i="${i}">${lbl}<i data-lucide="chevron-down"></i></button></div>
       <span class="amt ${g.type}">${g.type === 'in' ? '+' : g.type === 'out' ? '−' : ''}${rp(r.amount)}</span></div>
-      ${s.pick === i ? `<div class="picker">${(r.type === 'in' ? IN_CATS : OUT_CATS).map((k) => `<button class="chip cat" style="--c:${CATS[k].c}" data-a="impSet" data-i="${i}" data-cat="${k}"><i data-lucide="${CATS[k].i}"></i>${CATS[k].n}</button>`).join('')}${r.type === 'out' ? WL().filter((w) => w.id !== s.wallet).map((w) => `<button class="chip" data-a="impSet" data-i="${i}" data-to="${w.id}"><i data-lucide="arrow-left-right"></i>Ke ${esc(w.name)}</button>`).join('') : ''}</div>` : ''}`;
+      ${s.pick === i ? `<div class="picker">${(r.type === 'in' ? INC() : OUTC()).map((k) => `<button class="chip cat" style="--c:${CATS[k].c}" data-a="impSet" data-i="${i}" data-cat="${k}"><i data-lucide="${CATS[k].i}"></i>${CATS[k].n}</button>`).join('')}${r.type === 'out' ? WL().filter((w) => w.id !== s.wallet).map((w) => `<button class="chip" data-a="impSet" data-i="${i}" data-to="${w.id}"><i data-lucide="arrow-left-right"></i>Ke ${esc(w.name)}</button>`).join('') : ''}</div>` : ''}`;
     }).join('')}</div>
     <div style="height:12px"></div><button class="primary" data-a="impSave" ${on.length ? '' : 'disabled'}><i data-lucide="download"></i>Impor ${on.length} transaksi</button>
     <button class="btn2" style="width:100%;margin-top:8px;background:none" data-a="impReset"><i data-lucide="rotate-ccw"></i>Pilih file lain</button>`;
@@ -742,7 +745,7 @@ function pvHTML() {
     if (p.type === 'tf') chips = `${wchip(p.wallet)}<i data-lucide="arrow-right" style="align-self:center;color:var(--ink-3)"></i>${wchip(p.to)}`;
     else { const c = CATS[p.cat]; chips = `<button class="chip cat${pop('cat')} ${S.nlPick === i ? 'on' : ''}" style="--c:${c.c}" data-a="pvcat" data-i="${i}"><i data-lucide="${c.i}"></i>${c.n} · ${esc(p.sub)}<i data-lucide="chevron-down"></i></button>${wchip(p.wallet, true)}`; }
     chips += `<span class="chip${pop('date')}"><i data-lucide="calendar"></i>${dayLabel(p.date, T())}</span>`;
-    const pk = S.nlPick === i && p.type !== 'tf' ? `<div class="picker">${(p.type === 'in' ? IN_CATS.concat(OUT_CATS) : OUT_CATS.concat(IN_CATS)).map((k, j) => `<button class="chip cat" style="--c:${CATS[k].c};--i:${j}" data-a="pvset" data-i="${i}" data-cat="${k}"><i data-lucide="${CATS[k].i}"></i>${CATS[k].n}</button>`).join('')}</div>` : '';
+    const pk = S.nlPick === i && p.type !== 'tf' ? `<div class="picker">${(p.type === 'in' ? INC().concat(OUTC()) : OUTC().concat(INC())).map((k, j) => `<button class="chip cat" style="--c:${CATS[k].c};--i:${j}" data-a="pvset" data-i="${i}" data-cat="${k}"><i data-lucide="${CATS[k].i}"></i>${CATS[k].n}</button>`).join('')}</div>` : '';
     return `<div class="pv${prev ? '' : ' new'}"><div class="pv-top"><span class="type ${p.type}">${tl}</span><span class="pv-amt${p.amount ? '' : ' none'}${pop('amt')}">${p.amount ? (p.type === 'in' ? '+' : '') + rp(p.amount) : 'Nominal belum terbaca'}</span></div><div class="pv-note">${esc(p.note)}</div><div class="chips">${chips}</div>${pk}
       ${p.assumed ? `<div class="hint"><i data-lucide="info"></i>Angka tanpa satuan dibaca ribuan: ${rp(p.amount)}</div>` : ''}
       ${p.learned ? `<div class="hint learned"><i data-lucide="brain"></i>Kategori diingat dari koreksi Anda</div>` : ''}</div>`;
@@ -754,7 +757,7 @@ function refreshPreview() { const pv = $('preview'); if (pv) { pv.innerHTML = pv
 
 function amtHTML() { const s = fmtN(Number(S.m.amt) || 0); return 'Rp' + [...s].map((ch, i) => `<span class="${i === s.length - 1 && S.m.amt && S.m.justTyped ? 'dig-in' : ''}">${ch}</span>`).join(''); }
 function mManual() {
-  const m = S.m, cats = m.type === 'in' ? IN_CATS : OUT_CATS, amt = Number(m.amt) || 0, today = T();
+  const m = S.m, cats = m.type === 'in' ? INC() : OUTC(), amt = Number(m.amt) || 0, today = T();
   const wchips = (key, sel) => WL().map((w) => `<button class="chip ${sel === w.id ? 'on' : ''}" data-a="mset" data-k="${key}" data-v="${w.id}"><i data-lucide="${WALLET_ICON[w.group]}"></i>${esc(w.name)}</button>`).join('');
   const quick = [[today, 'Hari ini'], [addDays(today, -1), 'Kemarin'], [addDays(today, -2), '2 hari lalu']];
   return `<div class="seg" id="typeSeg" style="margin-bottom:10px"><span class="pill"></span>${[['out', 'Pengeluaran'], ['in', 'Pemasukan'], ['tf', 'Transfer']].map(([k, l]) => `<button class="${m.type === k ? 'on' : ''}" data-a="mset" data-k="type" data-v="${k}">${l}</button>`).join('')}</div>
@@ -779,7 +782,7 @@ function celebrate(text, type, fromEl, msg) {
   const to = rel($('odo'));
   closeComposer({ x: to.x, y: to.y });
   const label = type === 'out' && /^Rp/.test(text) ? '−' + text : text;
-  const land = () => { S.dispTotal = totalBalance(); setOdo($('odo'), S.dispTotal); impact(to, label); toast(msg); };
+  const land = () => { S.dispTotal = heroVal(); setOdo($('odo'), S.dispTotal); impact(to, label); toast(msg); };
   if (reduced()) { land(); return; }
   const ph = app(), f = document.createElement('div'); f.className = 'flyer ' + type; f.innerHTML = `<span class="ft">${esc(label)}</span><span class="fc">Rp</span>`; f.style.left = from.x + 'px'; f.style.top = from.y + 'px'; ph.appendChild(f);
   f.style.width = f.offsetWidth + 'px'; f.style.height = f.offsetHeight + 'px';
@@ -848,7 +851,7 @@ function sTx(id) {
     <div class="kv" style="border-top:0"><span>Kategori</span><b>${t.type === 'tf' ? (t.debt ? c.n : 'Transfer') : `${c.n} · ${esc(t.sub)}`}</b></div>
     <div class="kv"><span>${t.type === 'tf' ? 'Dari → Ke' : 'Dompet'}</span><b>${t.type === 'tf' ? `${esc(w.name)} → ${esc(W(t.to).name)}` : esc(w.name)}</b></div>
     <div class="kv"><span>Tanggal</span><b>${longDate(t.date)}</b></div>
-    <div class="kv"><span>Buku</span><b>Pribadi</b></div>${rule ? `<div class="kv"><span>Berulang</span><b>${scheduleLabel(rule)} · ${rule.auto ? 'otomatis' : 'tanya dulu'}</b></div>` : ''}</div>
+    <div class="kv"><span>Buku</span><b>${(BOOKS[t.book] || BOOKS.pribadi).n}</b></div>${rule ? `<div class="kv"><span>Berulang</span><b>${scheduleLabel(rule)} · ${rule.auto ? 'otomatis' : 'tanya dulu'}</b></div>` : ''}</div>
   ${t.debt ? `<button class="btn2 wide" data-a="debt" data-id="${t.debt}"><i data-lucide="hand-coins"></i>Buka catatan utang & piutang</button>` : txButtons(t, rule)}
   ${t.debtInit ? '' : `<button class="danger" data-a="del" data-id="${t.id}">Hapus transaksi</button>`}`);
 }
@@ -856,15 +859,36 @@ function txButtons(t, rule) {
   return `  <div class="btn-row"><button class="btn2" data-a="edit" data-id="${t.id}"><i data-lucide="pencil"></i>Ubah</button><button class="btn2" data-a="dup" data-id="${t.id}"><i data-lucide="copy"></i>Duplikat hari ini</button></div>
   ${rule ? `<button class="btn2 wide" data-a="ruleEdit" data-id="${rule.id}"><i data-lucide="repeat"></i>Atur jadwal berulang</button>` : `<button class="btn2 wide" data-a="ruleNew" data-id="${t.id}"><i data-lucide="repeat"></i>Jadikan berulang (gaji, cicilan, langganan)</button>`}`;
 }
+function bookRows(asCards) {
+  const on = store.data.settings.books || ['pribadi'], cur = BK();
+  const row = (k) => { const b = BOOKS[k], active = on.includes(k), here = k === cur;
+    if (asCards) return `<button class="book ${here ? 'on' : active ? '' : 'off'}" data-a="${active ? 'bookGo' : 'bookOn'}" data-b="${k}"><span class="ic" style="--c:${b.c}"><i data-lucide="${b.i}"></i></span><b>${b.n}</b><small>${here ? 'Sedang dibuka' : active ? 'Ketuk untuk membuka' : 'Aktifkan'}</small></button>`;
+    return `<button class="tx" data-a="${active ? 'bookGo' : 'bookOn'}" data-b="${k}"><span class="ic" style="--c:${b.c}"><i data-lucide="${b.i}"></i></span><span class="tx-main"><b>${b.n}</b><small>${active ? b.d : 'Belum aktif · ketuk untuk mengaktifkan'}</small></span>${here ? '<i data-lucide="check" style="color:var(--brand)"></i>' : active ? '<i data-lucide="chevron-right"></i>' : '<i data-lucide="plus" style="color:var(--ink-3)"></i>'}</button>`; };
+  return Object.keys(BOOKS).map(row).join('');
+}
 function sBooks() {
-  openSheet('Pilih buku', `<p class="confirm-text">Setiap buku punya catatan dan rekap sendiri, jadi uang pribadi tidak tercampur dengan freelance atau usaha.</p>
-  <div class="list">
-    <button class="tx" data-a="close"><span class="ic" style="--c:#13A894"><i data-lucide="user"></i></span><span class="tx-main"><b>Pribadi</b><small>Gaji dan pengeluaran harian</small></span><i data-lucide="check" style="color:var(--brand)"></i></button>
-    <button class="tx" data-a="toast" data-msg="Buku Freelance diaktifkan saat Anda mulai freelance"><span class="ic" style="--c:#06B6D4"><i data-lucide="laptop"></i></span><span class="tx-main"><b>Freelance</b><small>Belum aktif</small></span><i data-lucide="lock" style="color:var(--ink-3)"></i></button>
-    <button class="tx" data-a="toast" data-msg="Buku Usaha diaktifkan saat usaha Anda berjalan"><span class="ic" style="--c:#F0A010"><i data-lucide="store"></i></span><span class="tx-main"><b>Usaha</b><small>Belum aktif</small></span><i data-lucide="lock" style="color:var(--ink-3)"></i></button>
+  openSheet('Pilih buku', `<p class="confirm-text">Setiap buku punya catatan, rekap, dan anggaran sendiri, jadi uang pribadi tidak tercampur dengan freelance atau usaha.</p>
+  <div class="list">${bookRows(false)}
     <button class="tx" data-a="toast" data-msg="Buku bersama pasangan disiapkan untuk tahap berikutnya"><span class="ic" style="--c:#8B5CF6"><i data-lucide="users"></i></span><span class="tx-main"><b>Keluarga</b><small>Untuk nanti, bersama pasangan</small></span><i data-lucide="lock" style="color:var(--ink-3)"></i></button>
   </div>`);
 }
+function applyBookTint() { document.documentElement.dataset.book = BK(); }
+function switchBook(b) {
+  if (!BOOKS[b]) return;
+  closeSheet(true);
+  if (b === BK()) return;
+  store.setSetting('curBook', b); applyBookTint();
+  S.mk = null; S.drill = null; S.wsel = null; S.bSeen = null; closeDrill(true);
+  refresh(); goTab(S.idx === 2 ? 2 : 0); toast(`Buku ${BOOKS[b].n}`);
+}
+function activateBook(b) {
+  const B = BOOKS[b]; if (!B) return;
+  sConfirm(`Aktifkan buku ${B.n}?`, `Buku <b>${B.n}</b> punya catatan, rekap, dan anggaran sendiri, dengan kategori khusus (${catsFor(b, true).filter((k) => CATS[k].book).concat(catsFor(b, false).filter((k) => CATS[k].book)).map((k) => CATS[k].n).join(', ')}).<br><br>Dompet yang sudah ada dipakai bersama semua buku, jadi saldonya tetap satu. Anda juga bisa menambah dompet khusus, misalnya kas ${b === 'usaha' ? 'toko' : 'proyek'}. Di Beranda buku ini, angka besar menunjukkan <b>laba bersih bulan ini</b>.`, 'Aktifkan', () => {
+    store.setSetting('books', Array.from(new Set([...(store.data.settings.books || ['pribadi']), b])));
+    switchBook(b);
+  });
+}
+
 function sConfirm(title, text, okLabel, fn) {
   S.confirmFn = fn;
   openSheet(title, `<p class="confirm-text">${text}</p><div class="btn-row"><button class="btn2" data-a="close">Batal</button><button class="btn2" style="color:#fff;background:var(--out)" data-a="confirmOk">${esc(okLabel)}</button></div>`);
@@ -876,18 +900,19 @@ function sRename() {
 let WF = null;
 function sWalletForm(id) {
   const w = id ? W(id) : null;
-  WF = { id: w ? w.id : null, name: w ? w.name : '', group: w ? w.group : 'E-wallet', color: w ? w.color : WALLET_COLORS[store.data.wallets.length % WALLET_COLORS.length], no: w?.no || '', init: w ? String(w.init) : '' };
+  WF = { book: w ? (w.book || 'pribadi') : BK(), id: w ? w.id : null, name: w ? w.name : '', group: w ? w.group : 'E-wallet', color: w ? w.color : WALLET_COLORS[store.data.wallets.length % WALLET_COLORS.length], no: w?.no || '', init: w ? String(w.init) : '' };
   const used = id ? TX().filter((t) => t.wallet === id || t.to === id).length : 0;
   openSheet(w ? 'Ubah dompet' : 'Tambah dompet', `
     <span class="lab">Nama</span><input class="field" id="wfName" maxlength="28" value="${esc(WF.name)}" placeholder="mis. BCA, OVO, Jenius" autocomplete="off">
     <span class="lab">Jenis</span><div class="seg" id="wfGroup" style="margin-bottom:12px"><span class="pill"></span>${['Bank', 'E-wallet', 'Tunai'].map((g) => `<button class="${WF.group === g ? 'on' : ''}" data-a="wfGroup" data-v="${g}">${g}</button>`).join('')}</div>
+    ${isPersonal() && (!w || (w.book || 'pribadi') === 'pribadi') ? '' : `<span class="lab">Dipakai di</span><div class="seg" id="wfBook" style="margin-bottom:12px"><span class="pill"></span><button class="${WF.book === 'pribadi' ? 'on' : ''}" data-a="wfBook" data-v="pribadi">Semua buku</button><button class="${WF.book !== 'pribadi' ? 'on' : ''}" data-a="wfBook" data-v="${w && w.book !== 'pribadi' ? w.book : BK()}">Hanya ${BOOKS[w && w.book !== 'pribadi' ? w.book : BK()].n}</button></div>`}
     <span class="lab">Warna kartu</span><div class="swatches">${WALLET_COLORS.map((c) => `<button class="${WF.color === c ? 'on' : ''}" style="--c:${c}" data-a="wfColor" data-v="${c}" aria-label="Warna ${c}"></button>`).join('')}</div>
     <span class="lab">4 digit terakhir (opsional)</span><input class="field" id="wfNo" inputmode="numeric" maxlength="4" value="${esc(WF.no)}" placeholder="mis. 4821" autocomplete="off">
     <span class="lab">Saldo awal</span><input class="field" id="wfInit" inputmode="numeric" value="${WF.init ? fmtN(Number(WF.init)) : ''}" placeholder="0" autocomplete="off">
     <p class="form-note">Saldo awal adalah saldo sebelum transaksi pertama yang Anda catat di aplikasi ini.</p>
     <button class="primary" data-a="wfSave"><i data-lucide="check"></i>Simpan dompet</button>
     ${w ? (used ? `<p class="form-note" style="margin-top:12px">Dompet ini dipakai di ${used} transaksi, jadi tidak bisa dihapus.</p>` : `<button class="danger" data-a="wfDelete" data-id="${w.id}">Hapus dompet</button>`) : ''}`);
-  later(60, () => placePill($('wfGroup')));
+  later(60, () => { placePill($('wfGroup')); placePill($('wfBook')); });
 }
 
 /* ================= long-press peek ================= */
@@ -972,7 +997,7 @@ const RULES = () => store.data.rules.slice().sort((a, b) => (nextAfter(a, a.last
 const ruleCat = (r) => (r.type === 'tf' ? { n: 'Transfer', c: '#3D7BFF', i: 'arrow-left-right' } : CATS[r.cat] || CATS.lain);
 const ruleMeta = (r) => (r.type === 'tf' ? `${esc(W(r.wallet).name)} → ${esc(W(r.to).name)}` : `${esc(r.sub || ruleCat(r).n)} · ${esc(W(r.wallet).name)}`);
 /** Rules waiting for confirmation on Beranda: the oldest due date of each "ask first" rule. */
-const dueAsk = () => RULES().filter((r) => !r.auto).map((r) => ({ r, d: dueDates(r, T()) })).filter((x) => x.d.length);
+const dueAsk = () => RULES().filter((r) => !r.auto && (r.book || 'pribadi') === BK()).map((r) => ({ r, d: dueDates(r, T()) })).filter((x) => x.d.length);
 /** Record what is due for "automatic" rules. Ids are fixed per date, so running it twice (or on two devices) never duplicates. */
 function runRecurring() {
   if (!store.data.settings.onboarded) return;
@@ -1187,7 +1212,8 @@ function sDebt(id) {
 }
 
 /* ================= budgets ================= */
-const BUDGETS = () => store.data.settings.budgets || {};
+const BUDGETS = () => (isPersonal() ? store.data.settings.budgets : store.data.settings.bookBudgets?.[BK()]) || {};
+function saveBudgets(b) { if (isPersonal()) store.setSetting('budgets', b); else store.setSetting('bookBudgets', { ...(store.data.settings.bookBudgets || {}), [BK()]: b }); }
 const hasBudgets = () => Object.values(BUDGETS()).some((v) => v > 0);
 /** Average spending per category over the last 3 full months (only months with data). */
 function lastMonthsByCat() {
@@ -1223,7 +1249,7 @@ function sBudget() {
   const hist = lastMonthsByCat(), avg = suggestBudgets(hist);
   openSheet('Anggaran bulanan', `<p class="confirm-text" style="margin-bottom:10px">Batas pengeluaran per kategori setiap bulan. Kosongkan kategori yang tidak ingin dibatasi.</p>
     ${hist.length ? `<button class="btn2 wide" data-a="bfSuggest" style="margin:0 0 12px"><i data-lucide="sparkles"></i>Isi dari rata-rata ${hist.length} bulan terakhir</button>` : ''}
-    <div class="bf-list">${OUT_CATS.map((k) => `<label class="bf-row"><span class="ic" style="--c:${CATS[k].c}"><i data-lucide="${CATS[k].i}"></i></span><span class="tx-main"><b>${CATS[k].n}</b><small>${avg[k] ? `rata-rata ±${short(avg[k])}` : 'belum ada riwayat'}</small></span><input class="field bf-in" id="bf-${k}" inputmode="numeric" placeholder="—" value="${BF[k] ? fmtN(BF[k]) : ''}" autocomplete="off"></label>`).join('')}</div>
+    <div class="bf-list">${OUTC().map((k) => `<label class="bf-row"><span class="ic" style="--c:${CATS[k].c}"><i data-lucide="${CATS[k].i}"></i></span><span class="tx-main"><b>${CATS[k].n}</b><small>${avg[k] ? `rata-rata ±${short(avg[k])}` : 'belum ada riwayat'}</small></span><input class="field bf-in" id="bf-${k}" inputmode="numeric" placeholder="—" value="${BF[k] ? fmtN(BF[k]) : ''}" autocomplete="off"></label>`).join('')}</div>
     <p class="form-note" id="bfTotal">${bfTotal()}</p>
     <button class="primary" data-a="bfSave"><i data-lucide="check"></i>Simpan anggaran</button>`);
 }
@@ -1260,7 +1286,7 @@ function sExport() { EX = { range: 'month' }; openSheet('Ekspor ke Excel', `<div
 async function exportExcel(p) {
   try {
     const { buildSheets, toXlsx } = await import('./excel.ts');
-    const blob = await toXlsx(buildSheets(TX(), store.data.wallets, p, (w) => bal(w), store.data.settings.name));
+    const blob = await toXlsx(buildSheets(TX(), WL(), p, (w) => bal(w), [store.data.settings.name, isPersonal() ? '' : 'Buku ' + BOOKS[BK()].n].filter(Boolean).join(' · ')));
     const file = new File([blob], `do-it-dip-${p.file}.xlsx`, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
     closeSheet(); await saveFile(file, 'Rekap Do it Dip', 'File Excel siap disimpan');
   } catch (e) { console.error(e); toast('Gagal membuat file Excel. Coba lagi.'); }
@@ -1360,7 +1386,7 @@ async function afterCloudLogin(email) {
 }
 
 function afterDataReset() {
-  S.bSeen = null; S.mk = null; S.drill = null; S.wsel = null; S.wall = false; S.nl = ''; S.nlOv = {}; S.m = null; closeDrill(true); closeComposer();
+  applyBookTint(); S.bSeen = null; S.mk = null; S.drill = null; S.wsel = null; S.wall = false; S.nl = ''; S.nlOv = {}; S.m = null; closeDrill(true); closeComposer();
   applyTheme(store.data.settings.theme);
   syncDesk();
   if (!store.data.settings.onboarded) { showOnboarding(); return; }
@@ -1510,12 +1536,15 @@ function onClick(e) {
     case 'walletNew': sWalletForm(null); break;
     case 'walletEdit': sWalletForm(d.id); break;
     case 'wfGroup': WF.group = d.v; document.querySelectorAll('#wfGroup button').forEach((b) => b.classList.toggle('on', b.dataset.v === d.v)); placePill($('wfGroup')); break;
+    case 'wfBook': WF.book = d.v; document.querySelectorAll('#wfBook button').forEach((b) => b.classList.toggle('on', b.dataset.v === d.v)); placePill($('wfBook')); break;
+    case 'bookGo': switchBook(d.b); break;
+    case 'bookOn': activateBook(d.b); break;
     case 'wfColor': WF.color = d.v; document.querySelectorAll('.swatches button').forEach((b) => b.classList.toggle('on', b.dataset.v === d.v)); break;
     case 'wfSave': {
       const name = $('wfName').value.trim(); if (!name) { toast('Isi nama dompet dulu'); $('wfName').focus(); break; }
       const no = $('wfNo').value.replace(/\D/g, '').slice(-4), init = digitsOnly($('wfInit').value), old = WF.id ? W(WF.id) : null;
       const words = name.toLowerCase();
-      const w = { id: WF.id || store.newWalletId(), name, short: (old && old.name === name ? old.short : name.replace(/[^A-Za-z0-9]/g, '').slice(0, 3).toUpperCase() || 'W'), group: WF.group, color: WF.color, no: WF.group === 'Bank' && no ? no : undefined, init, order: old ? old.order : Math.max(-1, ...store.data.wallets.map((x) => x.order)) + 1, aliases: Array.from(new Set([...(old && old.name === name ? old.aliases : []), words])), book: 'pribadi' };
+      const w = { id: WF.id || store.newWalletId(), name, short: (old && old.name === name ? old.short : name.replace(/[^A-Za-z0-9]/g, '').slice(0, 3).toUpperCase() || 'W'), group: WF.group, color: WF.color, no: WF.group === 'Bank' && no ? no : undefined, init, order: old ? old.order : Math.max(-1, ...store.data.wallets.map((x) => x.order)) + 1, aliases: Array.from(new Set([...(old && old.name === name ? old.aliases : []), words])), book: WF.book || 'pribadi' };
       store.saveWallet(w); closeSheet(); S.wsel = null; refresh(); toast(old ? 'Dompet diperbarui' : `${name} ditambahkan`); break;
     }
     case 'wfDelete': {
@@ -1561,7 +1590,7 @@ function onClick(e) {
     /* manual */
     case 'mset': {
       const m = S.m; m[d.k] = d.v; m.justTyped = false;
-      if (d.k === 'type' && d.v !== 'tf') { m.cat = d.v === 'in' ? 'gaji' : 'makan'; m.sub = CATS[m.cat].subs[0]; if (d.v === 'in') m.wallet = defaults().bank; }
+      if (d.k === 'type' && d.v !== 'tf') { m.cat = d.v === 'in' ? INC()[0] : OUTC()[0]; m.sub = CATS[m.cat].subs[0]; if (d.v === 'in') m.wallet = defaults().bank; }
       if (d.k === 'type' && d.v === 'tf' && m.wallet === m.to) m.to = WL().find((w) => w.id !== m.wallet)?.id || m.to;
       if (d.k === 'cat') m.sub = CATS[d.v].subs[0];
       const sc = $('cobody').scrollTop; rerenderMode(); $('cobody').scrollTop = sc; break;
@@ -1714,8 +1743,8 @@ function onClick(e) {
       break;
     }
     case 'budget': sBudget(); break;
-    case 'bfSuggest': { const avg = suggestBudgets(lastMonthsByCat()); Object.assign(BF, avg); OUT_CATS.forEach((k) => { const f = $('bf-' + k); if (f) f.value = BF[k] ? fmtN(BF[k]) : ''; }); $('bfTotal').innerHTML = bfTotal(); toast('Diisi dari rata-rata. Sesuaikan bila perlu.'); break; }
-    case 'bfSave': { const clean = Object.fromEntries(Object.entries(BF).filter(([, v]) => v > 0)); store.setSetting('budgets', clean); S.bSeen = null; closeSheet(); refresh(); toast(Object.keys(clean).length ? `Anggaran ${Object.keys(clean).length} kategori disimpan` : 'Anggaran dikosongkan'); break; }
+    case 'bfSuggest': { const avg = suggestBudgets(lastMonthsByCat()); Object.assign(BF, avg); OUTC().forEach((k) => { const f = $('bf-' + k); if (f) f.value = BF[k] ? fmtN(BF[k]) : ''; }); $('bfTotal').innerHTML = bfTotal(); toast('Diisi dari rata-rata. Sesuaikan bila perlu.'); break; }
+    case 'bfSave': { const clean = Object.fromEntries(Object.entries(BF).filter(([, v]) => v > 0)); saveBudgets(clean); S.bSeen = null; closeSheet(); refresh(); toast(Object.keys(clean).length ? `Anggaran ${Object.keys(clean).length} kategori disimpan` : 'Anggaran dikosongkan'); break; }
     case 'excel': sExport(); break;
     case 'exRange': EX.range = d.v; $('exBody').innerHTML = exInner(); icons(); placePill($('exRange')); break;
     case 'exGo': el.disabled = true; el.innerHTML = '<i data-lucide="hourglass"></i>Membuat file…'; icons(); exportExcel(exPeriod(EX.range)); break;
@@ -1747,7 +1776,7 @@ const SHELL = `
 
 export async function start() {
   await store.load();
-  applyTheme(store.data.settings.theme);
+  applyTheme(store.data.settings.theme); applyBookTint();
   app().innerHTML = SHELL;
   PANELS = [0, 1, 2, 3].map((i) => $('p' + i));
   bindEvents(); bindTrack(); bindDrill();
@@ -1764,6 +1793,6 @@ export async function start() {
   renderAll(); setPos(0); PANELS[0].classList.add('play');
   requestAnimationFrame(() => { measureTabs(); moveInd(0); });
   if (!store.data.settings.onboarded) { showOnboarding(); return; }
-  setTimeout(() => { S.dispTotal = totalBalance(); setOdo($('odo'), S.dispTotal); }, 450);
+  setTimeout(() => { S.dispTotal = heroVal(); setOdo($('odo'), S.dispTotal); }, 450);
   setTimeout(() => app().classList.remove('boot'), 1600);
 }

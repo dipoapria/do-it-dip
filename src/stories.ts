@@ -10,13 +10,13 @@ let api = null, el = null;
 const SS = { i: 0, slides: [], hold: null, held: false };
 const SDUR = 5200;
 const reduced = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
-const outOn = (d) => store.data.txs.filter((t) => t.date === d && t.type === 'out').reduce((s, t) => s + t.amount, 0);
+const outOn = (d) => store.bookTxs().filter((t) => t.date === d && t.type === 'out').reduce((s, t) => s + t.amount, 0);
 const sumDays = (from, to) => { const T = todayStr(); let s = 0; for (let i = from; i <= to; i++) s += outOn(addDays(T, -i)); return s; };
 
 /** Enough data for a meaningful recap: at least 3 expenses in the last 7 days. */
 export function storiesReady(): boolean {
   const T = todayStr(), from = addDays(T, -6);
-  return store.data.txs.filter((t) => t.type === 'out' && t.date >= from && t.date <= T).length >= 3;
+  return store.bookTxs().filter((t) => t.type === 'out' && t.date >= from && t.date <= T).length >= 3;
 }
 
 function deco(i) {
@@ -29,9 +29,9 @@ function slides() {
   const days = []; for (let i = 6; i >= 0; i--) { const d = addDays(T, -i); days.push({ d, v: outOn(d) }); }
   const mx = days.reduce((a, b) => (b.v > a.v ? b : a)), dmax = Math.max(...days.map((x) => x.v), 1);
   const cnt = {}, sum = {};
-  store.data.txs.filter((t) => t.type === 'out' && t.date >= addDays(T, -6) && t.date <= T).forEach((t) => { cnt[t.cat] = (cnt[t.cat] || 0) + 1; sum[t.cat] = (sum[t.cat] || 0) + t.amount; });
+  store.bookTxs().filter((t) => t.type === 'out' && t.date >= addDays(T, -6) && t.date <= T).forEach((t) => { cnt[t.cat] = (cnt[t.cat] || 0) + 1; sum[t.cat] = (sum[t.cat] || 0) + t.amount; });
   const topC = Object.entries(cnt).sort((a, b) => b[1] - a[1])[0], tc = CATS[topC[0]] || CATS.lain;
-  const st = stats(store.data.txs, T.slice(0, 7)), rate = st.inc ? Math.max(0, (st.inc - st.out) / st.inc) : null, RR = 70, CC = 2 * Math.PI * RR;
+  const st = stats(store.bookTxs(), T.slice(0, 7)), rate = st.inc ? Math.max(0, (st.inc - st.out) / st.inc) : null, RR = 70, CC = 2 * Math.PI * RR;
   const cmp = prev7 ? `${out7 <= prev7 ? 'Lebih hemat' : 'Lebih banyak'} <b>${pct(Math.abs(out7 - prev7) / prev7)}</b> dibanding 7 hari sebelumnya (${rp(prev7)}).` : 'Belum ada data minggu sebelumnya untuk dibandingkan.';
   return [
     { bg: 'linear-gradient(160deg,#2CC4AB,#0B7C8A)', h: `<div class="bigic sa" style="--i:0"><i data-lucide="sparkles"></i></div><div class="kick sa" style="--i:1">Rekap kilat</div><h2 class="sa" style="--i:2">${name ? esc(name) + ', ini' : 'Ini'} minggumu dalam 30 detik.</h2><p class="sa" style="--i:3">${dayLabel(addDays(T, -6), T)} sampai hari ini. Ketuk kanan untuk lanjut, tahan untuk jeda.</p>` },

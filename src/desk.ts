@@ -6,6 +6,7 @@ import { balance, monthList, stats } from './stats.ts';
 import { addMonths, BLN, BULAN, dayLabel, daysIn, esc, monthName, pad, pct, rp, shortTxt, todayStr } from './format.ts';
 import * as store from './store.ts';
 import { netWorth } from './plan.ts';
+import { BOOKS } from './model.ts';
 
 type Api = { icons: () => void; onPhoneShown: () => void; exportExcel: (p: { from: string; to: string; label: string; file: string }) => void };
 let api: Api;
@@ -13,8 +14,9 @@ let root: HTMLElement | null = null;
 const D = { mode: 'month', mk: null, year: null, cat: null, slide: 0, presenting: false };
 const $ = (id) => document.getElementById(id);
 const T = () => todayStr();
-const TX = () => store.data.txs;
-const WL = () => store.data.wallets.slice().sort((a, b) => a.order - b.order);
+const TX = () => store.bookTxs();
+const WL = () => store.bookWallets().slice().sort((a, b) => a.order - b.order);
+const ALL = () => store.data.txs; // balances count every book
 const money = (n) => `<span class="m">${rp(n)}</span>`;
 const mshort = (n) => `<span class="m">${shortTxt(n)}</span>`;
 const reduced = () => window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -42,7 +44,7 @@ function niceMax(v) { if (v <= 0) return 1; const p = Math.pow(10, Math.floor(Ma
 
 /* ---------- sections (each also used as a presentation slide) ---------- */
 function kpis(P, cur, prev) {
-  const total = WL().reduce((s, w) => s + balance(TX(), w), 0), left = cur.inc - cur.out, rate = cur.inc ? left / cur.inc : 0;
+  const total = WL().reduce((s, w) => s + balance(ALL(), w), 0), left = cur.inc - cur.out, rate = cur.inc ? left / cur.inc : 0;
   const cmp = P.cur ? `${P.prevLabel}, periode sama` : P.prevLabel;
   return `<div class="dk-kpis">
     <div class="dk-kpi hero"><small>Total saldo saat ini</small><b class="m">${rp(total)}</b><span class="dk-sub">di ${WL().length} dompet</span></div>
@@ -122,13 +124,13 @@ function notes(P, cur, prev) {
     if (prevFull > 0) out.push({ c: '#3D8BFF', i: 'trending-up', t: `Perkiraan akhir bulan ${rp(cur.out + Math.max(0, prevFull - prevSame))}`, d: 'Memakai pola sisa bulan lalu.' });
   }
   const months = monthList(TX(), T()).filter((k) => k !== T().slice(0, 7)).slice(-3).map((k) => stats(TX(), k).out).filter((v) => v > 0);
-  if (months.length) { const avg = months.reduce((a, b) => a + b, 0) / months.length, total = WL().reduce((s, w) => s + balance(TX(), w), 0), n = Math.max(0, total / avg); out.push({ c: '#8B5CF6', i: 'shield-check', t: `Dana darurat cukup ${n.toFixed(1).replace('.', ',')} bulan`, d: `Patokan umum 3–6 kali pengeluaran bulanan (rata-rata ${rp(avg)}).`, prog: Math.min(1, n / 6) }); }
+  if (months.length) { const avg = months.reduce((a, b) => a + b, 0) / months.length, total = WL().reduce((s, w) => s + balance(ALL(), w), 0), n = Math.max(0, total / avg); out.push({ c: '#8B5CF6', i: 'shield-check', t: `Dana darurat cukup ${n.toFixed(1).replace('.', ',')} bulan`, d: `Patokan umum 3–6 kali pengeluaran bulanan (rata-rata ${rp(avg)}).`, prog: Math.min(1, n / 6) }); }
   return `<div class="dk-card-h"><h3>Catatan perencana keuangan</h3></div>
   ${out.length ? `<div class="dk-notes">${out.map((x, i) => `<div class="dk-note" style="--c:${x.c};--i:${i}"><span class="dk-ic sm"><i data-lucide="${x.i}"></i></span><div><b>${x.t}</b><p>${x.d}</p>${x.prog != null ? `<div class="trk"><i style="width:${x.prog * 100}%"></i></div>` : ''}</div></div>`).join('')}</div>` : '<div class="dk-empty">Catatan muncul setelah ada pemasukan dan pengeluaran.</div>'}`;
 }
 function walletsStrip() {
-  const ws = WL().map((w) => ({ w, b: balance(TX(), w) })), tot = ws.reduce((s, x) => s + Math.max(0, x.b), 0) || 1;
-  const cash = ws.reduce((s, x) => s + x.b, 0), nw = store.data.debts.length ? netWorth(cash, store.data.debts, TX()) : null;
+  const ws = WL().map((w) => ({ w, b: balance(ALL(), w) })), tot = ws.reduce((s, x) => s + Math.max(0, x.b), 0) || 1;
+  const cash = ws.reduce((s, x) => s + x.b, 0), nw = store.curBook() === 'pribadi' && store.data.debts.length ? netWorth(cash, store.data.debts, TX()) : null;
   return `<div class="dk-card-h"><h3>Saldo per dompet</h3><small>${nw ? `kekayaan bersih <b class="m">${rp(nw.net)}</b> · piutang ${rp(nw.receivable)} · utang ${rp(nw.owed)}` : 'hari ini'}</small></div>
   <div class="dk-wallets">${ws.map(({ w, b }, i) => `<div class="dk-wallet" style="--c:${w.color};--i:${i}"><div class="top"><span class="logo">${esc(w.short)}</span><span>${esc(w.name)}</span></div><b class="m">${rp(b)}</b><div class="trk"><i style="width:${(Math.max(0, b) / tot) * 100}%"></i></div><small>${pct(Math.max(0, b) / tot)} dari total</small></div>`).join('')}</div>`;
 }
@@ -158,7 +160,7 @@ export function render(swap = '') {
   const name = store.data.settings.name;
   root.innerHTML = `<div class="dk">
     <header class="dk-top">
-      <div class="dk-brand"><img class="dk-logo" src="./icons/logo-152.png" alt="Do it Dip" width="54" height="54"><div><small>Do it Dip${name ? ' · ' + esc(name) : ''}</small><h1>Rekap ${esc(P.label)}</h1></div></div>
+      <div class="dk-brand"><img class="dk-logo" src="./icons/logo-152.png" alt="Do it Dip" width="54" height="54"><div><small>Do it Dip${name ? ' · ' + esc(name) : ''}${store.curBook() !== 'pribadi' ? ' · Buku ' + BOOKS[store.curBook()].n : ''}</small><h1>Rekap ${esc(P.label)}</h1></div></div>
       <div class="dk-ctrl">
         <div class="dk-seg"><button class="${D.mode === 'month' ? 'on' : ''}" data-a="dkMode" data-v="month">Bulan</button><button class="${D.mode === 'year' ? 'on' : ''}" data-a="dkMode" data-v="year">Tahun</button></div>
         <div class="dk-step"><button data-a="dkStep" data-d="-1" ${canStep(-1) ? '' : 'disabled'} aria-label="Periode sebelumnya"><i data-lucide="chevron-left"></i></button><span>${esc(D.mode === 'year' ? String(D.year) : monthName(D.mk))}</span><button data-a="dkStep" data-d="1" ${canStep(1) ? '' : 'disabled'} aria-label="Periode berikutnya"><i data-lucide="chevron-right"></i></button></div>

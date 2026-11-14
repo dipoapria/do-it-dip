@@ -76,3 +76,21 @@ test('tanggal N in the future is clamped to today', () => {
   assert.equal(parseLine('arisan 200rb tgl 25', ctx).date, '2026-11-10');
   assert.equal(parseLine('arisan 200rb tgl 3', ctx).date, '2026-11-03');
 });
+
+test('book keywords: Usaha and Freelance categories only inside their book', async () => {
+  const { BOOK_KW, catsFor, OUT_CATS } = await import('../src/model.ts');
+  const usaha = { ...ctx, kw: BOOK_KW.usaha }, free = { ...ctx, kw: BOOK_KW.freelance };
+  let p = parseLine('jual kue 150rb tunai', usaha);
+  assert.equal(p.type, 'in'); assert.equal(p.cat, 'penjualan');
+  p = parseLine('beli bahan baku tepung 80rb', usaha);
+  assert.equal(p.cat, 'modal'); assert.equal(p.type, 'out');
+  p = parseLine('ongkir jne 25rb', usaha);
+  assert.equal(p.cat, 'operasional');
+  p = parseLine('dp proyek logo 1,5jt bsb', free);
+  assert.equal(p.type, 'in'); assert.equal(p.cat, 'proyek'); assert.equal(p.sub, 'DP proyek'); assert.equal(p.amount, 1_500_000);
+  p = parseLine('jual kue 150rb', ctx); // Pribadi: no book categories
+  assert.equal(p.cat, 'masuk_lain');
+  assert.ok(!OUT_CATS.includes('modal'));
+  assert.deepEqual(catsFor('usaha', true).slice(0, 1), ['penjualan']);
+  assert.equal(catsFor('pribadi', false).length, OUT_CATS.length);
+});

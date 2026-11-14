@@ -8,6 +8,8 @@ export interface ParseCtx {
   learned: Record<string, { cat: string; sub: string }>;
   wallets: WalletAlias[];
   defaults: { bank: string; cash: string };
+  /** Extra keyword rules of the current book, checked before the general ones. */
+  kw?: [RegExp, string, string][];
 }
 export interface Parsed {
   raw: string; amount: number; assumed: boolean; type: TxType;
@@ -96,6 +98,7 @@ export function parseLine(raw: string, ctx: ParseCtx): Parsed {
   const words = t.match(/[a-z]+/g) || [];
   let hit: { cat: string; sub: string } | null = null;
   for (const w of words) { if (ctx.learned[w]) { hit = { ...ctx.learned[w] }; r.learned = true; break; } }
+  if (!hit) for (const [rx, c, s] of ctx.kw || []) if (rx.test(t)) { hit = { cat: c, sub: s }; break; }
   if (!hit) for (const [rx, c, s] of KW_IN) if (rx.test(t)) { hit = { cat: c, sub: s }; break; }
   if (!hit && /\b(terima|dapat|dapet|diterima|pemasukan|jual|masuk)\b/.test(t)) hit = { cat: 'masuk_lain', sub: 'Lainnya' };
   if (!hit) for (const [rx, c, s] of KW) if (rx.test(t)) { hit = { cat: c, sub: s }; break; }
@@ -128,7 +131,7 @@ export function highlightHTML(text: string, ctx: ParseCtx, prev: Set<string> | n
   add(DATE_RE.source, 'h-date', 5);
   ctx.wallets.forEach((w) => add(walletSource(w), 'h-wal', 4));
   add(AMT_RE.source, 'h-amt', 3);
-  KW_IN.concat(KW).forEach(([re]) => add(re.source, 'h-cat', 2));
+  (ctx.kw || []).concat(KW_IN, KW).forEach(([re]) => add(re.source, 'h-cat', 2));
   Object.keys(ctx.learned).forEach((w) => add('\\b' + reEsc(w) + '\\b', 'h-cat', 2));
   ranges.sort((a, b) => b.pri - a.pri || a.s - b.s);
   const taken: typeof ranges = [];
