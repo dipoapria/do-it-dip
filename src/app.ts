@@ -8,10 +8,11 @@ import {
   PiggyBank, TrendingUp, TrendingDown, ShieldCheck, X, Check, Calendar, Info, Brain, Delete, Copy, Trash2, Lock, Tags,
   CloudUpload, Download, Upload, MonitorSmartphone, Sun, Moon, User, Laptop, Store, Users, Layers, Pointer, Pencil, Palette,
   Presentation, Minimize, Flame, Clapperboard, Camera, ImagePlus, FileSpreadsheet, ScanLine, Receipt, KeyRound, TriangleAlert, RotateCcw,
-  ScanFace, PartyPopper, Play, Hourglass,
+  ScanFace, PartyPopper, Play, Hourglass, CloudDownload, RefreshCw, LogOut, Mail, LogIn,
 } from 'lucide';
 import { initLock, lockNow, setupPin, verifyPin, pinOn, enableBio, bioAvailable } from './lock.ts';
 import { initStories, openStories, storiesReady } from './stories.ts';
+import * as cloud from './cloud.ts';
 import { recognize, preprocess } from './ocr.ts';
 import { extract, NeedPassword } from './filetext.ts';
 import { parseReceipt } from './receipt.ts';
@@ -31,7 +32,7 @@ const ICONS = {
   TrendingDown, ShieldCheck, X, Check, Calendar, Info, Brain, Delete, Copy, Trash2, Lock, Tags, CloudUpload, Download, Upload,
   MonitorSmartphone, Sun, Moon, User, Laptop, Store, Users, Layers, Pointer, Pencil, Palette, Presentation, Minimize, Flame, Clapperboard,
   Camera, ImagePlus, FileSpreadsheet, ScanLine, Receipt, KeyRound, TriangleAlert, RotateCcw,
-  ScanFace, PartyPopper, Play, Hourglass,
+  ScanFace, PartyPopper, Play, Hourglass, CloudDownload, RefreshCw, LogOut, Mail, LogIn,
 };
 function icons() { createIcons({ icons: ICONS, attrs: { 'stroke-width': 2.2 } }); }
 
@@ -352,8 +353,9 @@ function vLainnya() {
   <header class="top"><h2 class="title">Lainnya</h2></header>
   <div class="card"><h4>Profil</h4>
     <button class="set-row" data-a="rename"><span class="ic" style="--c:#13A894"><i data-lucide="user"></i></span><div class="t"><b>${esc(set.name || 'Tanpa nama')}</b><small>Nama sapaan di Beranda · ketuk untuk mengubah</small></div><i data-lucide="chevron-right"></i></button></div>
-  <div class="card"><h4>Cadangan data <span class="status">${S.persisted ? 'Penyimpanan permanen aktif' : 'Di perangkat ini'}</span></h4>
-    <p class="about" style="margin:0 0 4px">Semua data tersimpan di perangkat ini. Sampai cadangan online otomatis hadir, ekspor cadangan secara rutin, misalnya seminggu sekali, lalu simpan di Files atau Google Drive.</p>
+  ${cloudCardHTML()}
+  <div class="card"><h4>Cadangan manual <span class="status">${S.persisted ? 'Penyimpanan permanen aktif' : 'Di perangkat ini'}</span></h4>
+    <p class="about" style="margin:0 0 4px">File cadangan (.json) bisa disimpan di Files atau Google Drive dan dipulihkan di perangkat mana pun.</p>
     <div class="btn-row"><button class="btn2" data-a="backup"><i data-lucide="download"></i>Ekspor cadangan</button><button class="btn2" data-a="restore"><i data-lucide="upload"></i>Pulihkan dari file</button></div>
     <input type="file" id="restoreFile" accept="application/json,.json" hidden></div>
   <div class="card"><h4>Keamanan</h4>
@@ -924,6 +926,98 @@ async function readBackupFile(file) {
   if (!store.data.settings.onboarded || TX().length === 0) { closeSheet(true); await go(); return; }
   sConfirm('Pulihkan cadangan?', `Cadangan dari ${when} berisi <b>${n} transaksi</b>. Semua data di perangkat ini akan diganti dengan isi cadangan dan tidak bisa dibatalkan. Sebaiknya ekspor cadangan data saat ini dulu.`, 'Ganti dengan cadangan', go);
 }
+/* ================= online backup (Supabase) ================= */
+const C = { state: 'idle', err: '', timer: null, form: { mode: 'in', email: '', busy: false, err: '', info: '' } };
+const cloudOn = () => !!store.data.settings.cloudEmail;
+const ts = (s) => (s ? Date.parse(s) : 0);
+function ago(iso) {
+  if (!iso) return 'belum pernah';
+  const s = Math.round((Date.now() - Date.parse(iso)) / 1000);
+  if (s < 60) return 'baru saja'; if (s < 3600) return `${Math.round(s / 60)} menit lalu`; if (s < 86400) return `${Math.round(s / 3600)} jam lalu`;
+  return longDate(todayStr(new Date(iso)));
+}
+function cloudCardHTML() {
+  const set = store.data.settings;
+  if (!cloudOn()) return `<div class="card"><h4>Cadangan online <span class="status">Belum tersambung</span></h4>
+    <p class="about" style="margin:0 0 10px">Cadangkan otomatis setiap ada perubahan, lalu buka data yang sama di laptop atau HP lain. Masuk dengan email dan kata sandi.</p>
+    <button class="btn2 primaryish" style="width:100%" data-a="cloudConnect"><i data-lucide="cloud-upload"></i>Hubungkan dengan email</button></div>`;
+  const st = C.state === 'syncing' ? ['Menyinkronkan…', ''] : C.state === 'error' ? ['Gagal', 'bad'] : set.cloudDirty ? ['Belum terkirim', 'warn'] : ['Tersinkron', 'good'];
+  return `<div class="card"><h4>Cadangan online <span class="status ${st[1]}" id="cloudStatus">${st[0]}</span></h4>
+    <p class="about" style="margin:0">Tersambung sebagai <b>${esc(set.cloudEmail)}</b>. Disinkronkan ${ago(set.cloudLastSync)}.${C.state === 'error' ? `<br><span style="color:var(--out)">${esc(C.err)}</span>` : ''}</p>
+    <div class="btn-row"><button class="btn2" data-a="cloudSync"><i data-lucide="refresh-cw"></i>Sinkronkan sekarang</button><button class="btn2" data-a="cloudOut"><i data-lucide="log-out"></i>Putuskan</button></div></div>`;
+}
+const newForm = (mode = 'in', email = '') => ({ mode, email, busy: false, err: '', info: '' });
+function cloudFormHTML() {
+  const f = C.form, up = f.mode === 'up';
+  return `<div class="seg" id="clSeg" style="margin-bottom:14px"><span class="pill"></span><button class="${up ? '' : 'on'}" data-a="cloudMode" data-v="in">Masuk</button><button class="${up ? 'on' : ''}" data-a="cloudMode" data-v="up">Buat akun</button></div>
+    <span class="lab">Email</span><input class="field" id="clEmail" type="email" inputmode="email" autocomplete="username" autocapitalize="off" spellcheck="false" placeholder="nama@email.com" value="${esc(f.email)}">
+    <span class="lab">Kata sandi</span><input class="field" id="clPw" type="password" autocomplete="${up ? 'new-password' : 'current-password'}" placeholder="${up ? 'Minimal 8 karakter' : 'Kata sandi akun'}">
+    ${f.err ? `<p class="form-note" style="color:var(--out)">${esc(f.err)}</p>` : f.info ? `<p class="form-note" style="color:var(--in)">${esc(f.info)}</p>` : `<p class="form-note">${up ? 'Akun ini hanya untuk cadangan Do it Dip di proyek Supabase Anda sendiri. Simpan kata sandinya di iCloud Keychain supaya terisi otomatis.' : 'Pakai email dan kata sandi yang sama di iPhone dan laptop.'}</p>`}
+    <button class="primary" data-a="cloudAuth" ${f.busy ? 'disabled' : ''}><i data-lucide="${up ? 'user' : 'log-in'}"></i>${f.busy ? 'Memproses…' : up ? 'Buat akun & sambungkan' : 'Masuk'}</button>`;
+}
+function redrawCloudForm() {
+  if (S.ob && S.ob.step === 'cloud') { renderOnb(); }
+  else { const b = document.querySelector('#layer .sheet-body'); if (b) { b.innerHTML = cloudFormHTML(); icons(); } }
+  placePill($('clSeg'));
+  later(80, () => (C.form.email ? $('clPw') : $('clEmail'))?.focus());
+}
+function redrawCloudCard() { if (PANELS[3]) { const sc = PANELS[3].scrollTop; renderPanel(3); icons(); PANELS[3].scrollTop = sc; } }
+function markDirty() {
+  if (!cloudOn()) return;
+  if (!store.data.settings.cloudDirty) { store.setSetting('cloudDirty', true); redrawCloudCard(); }
+  clearTimeout(C.timer); C.timer = setTimeout(() => pushNow(), 4000);
+}
+async function pushNow() {
+  if (!cloudOn() || C.state === 'syncing') return;
+  clearTimeout(C.timer); C.state = 'syncing'; redrawCloudCard();
+  try { const at = await cloud.push(store.exportAll()); store.setSetting('cloudLastSync', at); store.setSetting('cloudDirty', false); C.state = 'ok'; C.err = ''; }
+  catch (e) { C.state = 'error'; C.err = cloud.cloudError(e); console.error(e); }
+  redrawCloudCard();
+}
+async function applyCloud() {
+  const r = await cloud.pull(); if (!r) return false;
+  const err = store.checkBackup(r.backup); if (err) throw new Error(err);
+  await store.importAll(r.backup);
+  store.setSetting('cloudLastSync', r.updated_at); store.setSetting('cloudDirty', false);
+  afterDataReset(); return true;
+}
+/** Bring this device and the cloud copy in line: pull when only the cloud changed, push when only this device changed, ask when both did. */
+async function syncNow(manual) {
+  if (!cloudOn() || C.state === 'syncing') return;
+  C.state = 'syncing'; redrawCloudCard();
+  try {
+    const m = await cloud.meta(), s = store.data.settings;
+    C.state = 'idle';
+    if (!m) { await pushNow(); if (manual && C.state === 'ok') toast('Cadangan online dibuat'); return; }
+    const cloudNewer = ts(m.updated_at) > ts(s.cloudLastSync);
+    if (cloudNewer && (!s.cloudDirty || TX().length === 0)) { await applyCloud(); C.state = 'ok'; toast(`Data diperbarui dari ${m.device || 'cloud'} (${m.tx_count} transaksi)`); }
+    else if (cloudNewer) { sConflict(m); }
+    else if (s.cloudDirty) { await pushNow(); }
+    else { C.state = 'ok'; if (manual) toast('Sudah tersinkron'); }
+  } catch (e) { C.state = 'error'; C.err = cloud.cloudError(e); console.error(e); }
+  redrawCloudCard();
+}
+function sConflict(m) {
+  openSheet('Data berbeda', `<p class="confirm-text">Data di perangkat ini dan di cloud sama-sama berubah sejak sinkron terakhir, jadi saya tidak menimpa salah satunya tanpa izin. Pilih yang ingin dipakai:</p>
+    <div class="list">
+      <button class="tx" data-a="conflictCloud"><span class="ic" style="--c:#3D8BFF"><i data-lucide="cloud-download"></i></span><span class="tx-main"><b>Pakai data cloud</b><small>${m.tx_count} transaksi · dari ${esc(m.device || 'perangkat lain')} · ${ago(m.updated_at)}</small></span></button>
+      <button class="tx" data-a="conflictLocal"><span class="ic" style="--c:#13A894"><i data-lucide="cloud-upload"></i></span><span class="tx-main"><b>Pakai data perangkat ini</b><small>${TX().length} transaksi · menimpa data cloud</small></span></button>
+    </div><p class="form-note" style="margin-top:12px">Yang tidak dipilih akan ditimpa. Kalau ragu, ekspor cadangan manual dulu dari Lainnya.</p>`);
+}
+async function afterCloudLogin(email) {
+  store.setSetting('cloudEmail', email); store.setSetting('cloudLastSync', ''); store.setSetting('cloudDirty', TX().length > 0);
+  C.form = newForm();
+  if (S.ob) {
+    try {
+      const m = await cloud.meta();
+      if (m && (await applyCloud())) { S.ob = null; toast(`Data dipulihkan dari cloud (${m.tx_count} transaksi)`); return; }
+      toast('Belum ada cadangan di akun ini. Lanjutkan pengaturan awal.'); S.ob.step = 0; renderOnb();
+    } catch (e) { toast(cloud.cloudError(e)); S.ob.step = 0; renderOnb(); }
+    return;
+  }
+  closeSheet(); toast('Tersambung ke cadangan online'); await syncNow(true);
+}
+
 function afterDataReset() {
   S.mk = null; S.drill = null; S.wsel = null; S.wall = false; S.nl = ''; S.nlOv = {}; S.m = null; closeDrill(true); closeComposer();
   applyTheme(store.data.settings.theme);
@@ -946,8 +1040,13 @@ function renderOnb() {
       <span class="lab" style="margin-top:6px">Nama panggilan</span><input class="field" id="obName" maxlength="24" value="${esc(ob.name)}" placeholder="mis. Dipo" autocomplete="off"></div>
       <div class="spacer"></div>
       <button class="primary" data-a="obNext"><i data-lucide="arrow-right"></i>Lanjut</button>
-      <button class="btn2" style="margin-top:10px;width:100%;background:none" data-a="restore"><i data-lucide="upload"></i>Sudah punya cadangan? Pulihkan dari file</button>
+      <button class="btn2" style="margin-top:10px;width:100%" data-a="obCloud"><i data-lucide="cloud-download"></i>Sudah pakai di perangkat lain? Masuk ke cadangan online</button>
+      <button class="btn2" style="margin-top:6px;width:100%;background:none" data-a="restore"><i data-lucide="upload"></i>Pulihkan dari file cadangan</button>
       <input type="file" id="restoreFile" accept="application/json,.json" hidden>`;
+  } else if (ob.step === 'cloud') {
+    el.innerHTML = `<div class="step"><div class="onb-hero"><img class="onb-logo" src="./icons/logo-152.png" alt="" width="76" height="76"><h1>Masuk ke <span>cadangan online</span></h1>
+      <p>Data dari perangkat lain akan diambil ke perangkat ini.</p></div>${cloudFormHTML()}</div><div class="spacer"></div>
+      <button class="btn2" style="margin-top:10px;width:100%;background:none" data-a="obBack"><i data-lucide="chevron-left"></i>Kembali</button>`;
   } else {
     el.innerHTML = `<div class="step">
       <h1 style="font-size:28px;margin-bottom:8px">Saldo awal dompetmu</h1>
@@ -998,6 +1097,10 @@ function bindEvents() {
     if (id === 'impFile' || id === 'impShot') startImport(f);
     e.target.value = '';
   });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && e.target.id === 'clEmail') { e.preventDefault(); $('clPw')?.focus(); return; }
+    if (e.key === 'Enter' && e.target.id === 'clPw') { e.preventDefault(); onClick({ target: document.querySelector('[data-a="cloudAuth"]') }); return; }
+  });
   document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.id === 'impPw') { e.preventDefault(); onClick({ target: document.querySelector('[data-a="impPw"]') }); } });
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') { if ($('layer').innerHTML) closeSheet(); else if (!$('composer').hidden) closeComposer(); else if (!$('drill').hidden) closeDrill(); return; }
@@ -1013,7 +1116,11 @@ function bindEvents() {
   window.addEventListener('resize', () => { tabCenters = []; moveInd(S.pos); placePill($('themeSeg')); });
   window.addEventListener('dip-error', (e) => toast(e.detail));
   // A new day may have started while the app sat in the background.
-  document.addEventListener('visibilitychange', () => { if (!document.hidden && store.data.settings.onboarded && $('composer').hidden) refresh(); });
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) { if (cloudOn() && store.data.settings.cloudDirty) pushNow(); return; }
+    if (store.data.settings.onboarded && $('composer').hidden) refresh();
+    if (cloudOn()) syncNow(false);
+  });
   if (window.matchMedia) matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', () => {});
 }
 
@@ -1075,7 +1182,7 @@ function onClick(e) {
     case 'rename': sRename(); break;
     case 'renameSave': { const v = $('renameIn').value.trim(); store.setSetting('name', v); closeSheet(); refresh(); toast('Nama disimpan'); break; }
     case 'unlearn': store.unlearn(d.w); renderPanel(3); icons(); toast(`“${d.w}” dilupakan`); break;
-    case 'wipe': sConfirm('Hapus semua data?', 'Semua transaksi, dompet, dan pengaturan di perangkat ini akan dihapus permanen dan <b>tidak bisa dibatalkan</b>. Ekspor cadangan dulu jika masih ingin menyimpannya.', 'Hapus semua', async () => { await store.wipe(); afterDataReset(); }); break;
+    case 'wipe': sConfirm('Hapus semua data?', 'Semua transaksi, dompet, dan pengaturan di perangkat ini akan dihapus permanen dan <b>tidak bisa dibatalkan</b>. Ekspor cadangan dulu jika masih ingin menyimpannya.', 'Hapus semua', async () => { if (cloudOn()) { try { await cloud.signOut(); } catch {} } await store.wipe(); afterDataReset(); }); break;
     case 'confirmOk': { const fn = S.confirmFn; S.confirmFn = null; closeSheet(); if (fn) fn(); break; }
     case 'del': deleteTx(d.id); break;
     case 'pkDetail': closeSheet(true); sTx(d.id); break;
@@ -1128,6 +1235,29 @@ function onClick(e) {
       const t = store.addTx(rec); markFresh([t]);
       const src = $('mamt'); S.m = null; celebrate((m.type === 'in' ? '+' : '') + rp(amt), m.type, src, `Tercatat: ${rp(amt)}`); break;
     }
+    /* online backup */
+    case 'cloudConnect': C.form = newForm(); openSheet('Cadangan online', cloudFormHTML()); later(60, () => placePill($('clSeg'))); later(350, () => $('clEmail')?.focus()); break;
+    case 'obCloud': S.ob.name = $('obName')?.value || S.ob.name; C.form = newForm(); S.ob.step = 'cloud'; renderOnb(); later(60, () => placePill($('clSeg'))); later(100, () => $('clEmail')?.focus()); break;
+    case 'cloudMode': C.form = { ...newForm(d.v, ($('clEmail')?.value || '').trim()) }; redrawCloudForm(); break;
+    case 'cloudAuth': {
+      const email = ($('clEmail')?.value || '').trim().toLowerCase(), pw = $('clPw')?.value || '', up = C.form.mode === 'up';
+      C.form.email = email; C.form.info = '';
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { C.form.err = 'Alamat email belum benar.'; redrawCloudForm(); break; }
+      if (pw.length < (up ? 8 : 1)) { C.form.err = up ? 'Kata sandi minimal 8 karakter.' : 'Isi kata sandi.'; redrawCloudForm(); break; }
+      C.form.busy = true; C.form.err = ''; redrawCloudForm();
+      (up ? cloud.signUp(email, pw) : cloud.signIn(email, pw))
+        .then((signed) => {
+          if (signed) return afterCloudLogin(signed);
+          // Supabase wants the email confirmed first.
+          C.form = { ...newForm('in', email), info: 'Akun dibuat. Buka email dari Supabase dan ketuk tautan konfirmasinya, lalu kembali ke sini dan tekan Masuk.' }; redrawCloudForm();
+        })
+        .catch((e) => { C.form.busy = false; C.form.err = cloud.cloudError(e); redrawCloudForm(); });
+      break;
+    }
+    case 'cloudSync': syncNow(true); break;
+    case 'cloudOut': sConfirm('Putuskan cadangan online?', 'Data di perangkat ini tetap ada. Cadangan di cloud juga tidak dihapus, dan Anda bisa menyambungkannya lagi kapan saja.', 'Putuskan', async () => { try { await cloud.signOut(); } catch {} ['cloudEmail', 'cloudLastSync'].forEach((k) => store.setSetting(k, '')); store.setSetting('cloudDirty', false); C.state = 'idle'; redrawCloudCard(); toast('Cadangan online diputuskan'); }); break;
+    case 'conflictCloud': closeSheet(); C.state = 'syncing'; applyCloud().then(() => { C.state = 'ok'; toast('Memakai data dari cloud'); }).catch((e) => { C.state = 'error'; C.err = cloud.cloudError(e); }).finally(redrawCloudCard); break;
+    case 'conflictLocal': closeSheet(); pushNow().then(() => { if (C.state === 'ok') toast('Data perangkat ini diunggah ke cloud'); }); break;
     /* security + stories */
     case 'stories': openStories(); break;
     case 'pinToggle': {
@@ -1210,6 +1340,8 @@ export async function start() {
   initLock({ icons, toast, onWipe: async () => { await store.wipe(); afterDataReset(); } });
   initStories({ icons, toast, goRekap: () => goTab(1) });
   if (store.data.settings.onboarded) lockNow(); // lock screen first, before anything is visible
+  store.onChange(markDirty);
+  if (store.data.settings.onboarded && cloudOn()) setTimeout(() => syncNow(false), 800);
   store.requestPersist().then((ok) => { S.persisted = ok; });
   bioAvailable().then((ok) => { S.bioAvail = ok; if (ok && PANELS[3]) { renderPanel(3); icons(); } });
   renderAll(); setPos(0); PANELS[0].classList.add('play');

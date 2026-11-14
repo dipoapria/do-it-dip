@@ -52,7 +52,7 @@ Perbarui file ini setiap ada fitur yang selesai, supaya tidak ada yang terlewat.
 | Sembunyikan nominal (blur) & intip saldo kartu | mockup v2 | ✅ |
 | Tema terang/gelap dengan efek menyebar | mockup v2 | ✅ |
 | **Kunci PIN saat aplikasi dibuka** | rencana awal (Tahap 1), mockup v1 & v2 | ✅ PIN 4/6 digit (hash PBKDF2), Face ID/Touch ID, kunci otomatis (langsung/1/5 menit), tampilan tertutup di pengalih aplikasi |
-| **Cadangan online otomatis + sinkron HP ↔ laptop** | permintaan awal | ⏳ |
+| **Cadangan online otomatis + sinkron HP ↔ laptop** | permintaan awal | ✅ Supabase (proyek milik pengguna), masuk email + kata sandi, unggah otomatis setelah perubahan, ambil otomatis saat dibuka, pilihan saat dua perangkat sama-sama berubah, RLS per akun |
 | Ekspor ke Excel | mockup v1 & v2 | ⏳ |
 
 ## Catatan teknis untuk fitur berikutnya

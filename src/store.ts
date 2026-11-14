@@ -31,6 +31,14 @@ const fail = (e: unknown) => {
 };
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
 
+/** Settings that belong to this device only: never put in backups, never overwritten by a restore. */
+export const DEVICE_KEYS: (keyof Settings)[] = ['pinHash', 'pinSalt', 'pinLen', 'bioId', 'lockAfter', 'theme', 'cloudEmail', 'cloudLastSync', 'cloudDirty', 'lpLearned'];
+
+/* ---------- change signal (drives automatic online backup) ---------- */
+let changeListener: (() => void) | null = null;
+export function onChange(fn: () => void): void { changeListener = fn; }
+function changed(): void { if (changeListener) changeListener(); }
+
 export async function load(): Promise<void> {
   const [t, w, l, s] = await Promise.all([db.tx.toArray(), db.wallets.toArray(), db.learned.toArray(), db.settings.toArray()]);
   data.txs = t;
@@ -50,6 +58,7 @@ export function addTx(o: NewTx): Tx {
   const t: Tx = { book: 'pribadi', ...o, id: uid(), createdAt: now, updatedAt: now };
   data.txs.push(t);
   db.tx.put(t).catch(fail);
+  changed();
   return t;
 }
 export function updateTx(id: string, patch: Partial<Tx>): Tx | undefined {
@@ -57,6 +66,7 @@ export function updateTx(id: string, patch: Partial<Tx>): Tx | undefined {
   if (!t) return;
   Object.assign(t, patch, { updatedAt: Date.now() });
   db.tx.put(t).catch(fail);
+  changed();
   return t;
 }
 export function deleteTx(id: string): Tx | undefined {
@@ -64,11 +74,13 @@ export function deleteTx(id: string): Tx | undefined {
   if (i < 0) return;
   const [t] = data.txs.splice(i, 1);
   db.tx.delete(id).catch(fail);
+  changed();
   return t;
 }
 export function restoreTx(t: Tx): void {
   data.txs.push(t);
   db.tx.put(t).catch(fail);
+  changed();
 }
 
 export function newWalletId(): string { return 'w-' + uid().slice(0, 8); }
@@ -76,28 +88,34 @@ export function saveWallet(w: Wallet): void {
   const i = data.wallets.findIndex((x) => x.id === w.id);
   if (i >= 0) data.wallets[i] = w; else data.wallets.push(w);
   db.wallets.put(w).catch(fail);
+  changed();
 }
 export function deleteWallet(id: string): void {
   data.wallets = data.wallets.filter((w) => w.id !== id);
   db.wallets.delete(id).catch(fail);
+  changed();
 }
 export async function saveWallets(ws: Wallet[]): Promise<void> {
   data.wallets = ws;
   await db.transaction('rw', db.wallets, async () => { await db.wallets.clear(); await db.wallets.bulkPut(ws); });
+  changed();
 }
 
 export function learn(word: string, cat: string, sub: string): void {
   data.learned[word] = { cat, sub };
   db.learned.put({ word, cat, sub }).catch(fail);
+  changed();
 }
 export function unlearn(word: string): void {
   delete data.learned[word];
   db.learned.delete(word).catch(fail);
+  changed();
 }
 
 export function setSetting<K extends keyof Settings>(key: K, value: Settings[K]): void {
   data.settings[key] = value;
   db.settings.put({ key, value }).catch(fail);
+  if (!DEVICE_KEYS.includes(key) && key !== 'onboarded') changed();
 }
 
 /* ---------- backup ---------- */
@@ -111,7 +129,7 @@ export function exportAll(): Backup {
     data: {
       tx: data.txs, wallets: data.wallets,
       learned: Object.entries(data.learned).map(([word, v]) => ({ word, ...v })),
-      settings: data.settings,
+      settings: Object.fromEntries(Object.entries(data.settings).filter(([k]) => !DEVICE_KEYS.includes(k as keyof Settings))) as Partial<Settings>,
     },
   };
 }
@@ -125,12 +143,15 @@ export function checkBackup(obj: unknown): string | null {
   return null;
 }
 export async function importAll(b: Backup): Promise<void> {
+  // Keep this device's own settings (PIN, Face ID, theme, cloud link); take everything else from the backup.
+  const local = Object.fromEntries(DEVICE_KEYS.map((k) => [k, data.settings[k]]));
+  const incoming = Object.fromEntries(Object.entries(b.data.settings || {}).filter(([k]) => !DEVICE_KEYS.includes(k as keyof Settings)));
   await db.transaction('rw', [db.tx, db.wallets, db.learned, db.settings], async () => {
     await Promise.all([db.tx.clear(), db.wallets.clear(), db.learned.clear(), db.settings.clear()]);
     await db.tx.bulkPut(b.data.tx);
     await db.wallets.bulkPut(b.data.wallets);
     await db.learned.bulkPut(b.data.learned || []);
-    await db.settings.bulkPut(Object.entries({ ...b.data.settings, onboarded: true }).map(([key, value]) => ({ key, value })));
+    await db.settings.bulkPut(Object.entries({ ...incoming, ...local, onboarded: true }).map(([key, value]) => ({ key, value })));
   });
   await load();
 }

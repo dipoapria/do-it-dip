@@ -40,7 +40,18 @@ function show(mode, opts = {}) {
   el.hidden = false; document.body.classList.add('locked'); document.body.classList.remove('veil');
   ['app', 'desk'].forEach((id) => document.getElementById(id)?.setAttribute('inert', ''));
   render();
-  if (mode === 'unlock' && S().bioId) setTimeout(() => el.querySelector('[data-k="bio"]')?.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.15)' }, { transform: 'scale(1)' }], { duration: 600, iterations: 2 }), 400);
+  // Try Face ID right away. Safari may refuse it without a tap; then the face button stays as the fallback.
+  if (mode === 'unlock' && S().bioId) setTimeout(() => { if (!el.hidden && L.mode === 'unlock' && document.visibilityState === 'visible') tryBio(true); }, 350);
+}
+let bioBusy = false;
+async function tryBio(auto) {
+  if (bioBusy) return; bioBusy = true;
+  try {
+    if (await bioVerify(S().bioId)) { L.attempts = 0; hide(); }
+  } catch {
+    if (!auto) { const s = el.querySelector('.lk-sub'); if (s) s.textContent = 'Face ID gagal atau dibatalkan. Gunakan PIN.'; }
+    else el.querySelector('[data-k="bio"]')?.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.15)' }, { transform: 'scale(1)' }], { duration: 600, iterations: 2 });
+  } finally { bioBusy = false; }
 }
 /** Close the lock screen; `then` runs only after it is fully gone (so it may open the lock screen again). */
 function hide(then = null) {
@@ -85,7 +96,7 @@ async function onKey(k) {
   if (k === 'forgot') { L.forgot = true; render(); return; }
   if (k === 'back') { L.forgot = false; render(); return; }
   if (k === 'wipe') { L.forgot = false; hide(() => api.onWipe()); return; }
-  if (k === 'bio') { try { if (await bioVerify(S().bioId)) { L.attempts = 0; hide(); } } catch { const s = el.querySelector('.lk-sub'); if (s) s.textContent = 'Face ID gagal atau dibatalkan. Gunakan PIN.'; } return; }
+  if (k === 'bio') { tryBio(false); return; }
   if (k === 'bioYes') { try { store.setSetting('bioId', await bioRegister()); api.toast('Face ID aktif'); } catch { api.toast('Face ID tidak diaktifkan'); } L.offerBio = false; finishSetup(); return; }
   if (k === 'bioNo') { L.offerBio = false; finishSetup(); return; }
 }

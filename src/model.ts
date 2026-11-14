@@ -44,9 +44,13 @@ export interface Settings {
   bioId: string;
   /** Lock again after the app was in the background this many seconds. */
   lockAfter: number;
+  /** Online backup: signed-in email ('' = not connected), server time of the last copy this device has, unsent changes. */
+  cloudEmail: string;
+  cloudLastSync: string;
+  cloudDirty: boolean;
 }
 
-export const DEFAULT_SETTINGS: Settings = { name: '', onboarded: false, theme: 'system', lpLearned: false, pinHash: '', pinSalt: '', pinLen: 4, bioId: '', lockAfter: 60 };
+export const DEFAULT_SETTINGS: Settings = { name: '', onboarded: false, theme: 'system', lpLearned: false, pinHash: '', pinSalt: '', pinLen: 4, bioId: '', lockAfter: 60, cloudEmail: '', cloudLastSync: '', cloudDirty: false };
 
 export interface Category { n: string; c: string; i: string; subs: string[]; inc?: boolean }
 

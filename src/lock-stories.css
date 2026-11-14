@@ -97,3 +97,9 @@ body.veil::after{content:"";position:fixed;inset:0;z-index:1999;background:var(-
 .deco .marq{position:absolute;left:0;bottom:calc(var(--sb) + 30px);display:flex;white-space:nowrap;font:800 12px var(--f-display);letter-spacing:.22em;color:rgba(255,255,255,.42);animation:marq 22s linear infinite}
 @keyframes marq{to{transform:translateX(-50%)}}
 @media (prefers-reduced-motion:reduce){.lock *,.stories *{animation-duration:.01ms!important;animation-delay:0ms!important;transition-duration:.01ms!important}}
+
+/* online backup */
+.status.good{color:var(--in);background:color-mix(in srgb,var(--in) 14%,var(--surface))}
+.status.warn{color:#C98A00;background:color-mix(in srgb,#F0A010 16%,var(--surface))}
+.status.bad{color:var(--out);background:color-mix(in srgb,var(--out) 13%,var(--surface))}
+.code-field{font:800 26px var(--f-display);letter-spacing:.35em;text-align:center}
