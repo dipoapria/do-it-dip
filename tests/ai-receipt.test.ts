@@ -7,7 +7,7 @@ test('Gemini JSON becomes a receipt result; "high" only when the numbers add up'
     items: [{ name: '001 INDOMIE GRG CB IJO JUMBO120g', qty: 1, price: 3900 }, { name: 'ROMA KELAPA 300GR', qty: 2, price: 18200 }, { name: 'TELUR AYAM NEGERI CURAH /KG', qty: 1.024, price: 26317 }],
     discount: 0, fees: 0, total: 48417, date: '2026-09-16', payment: 'cash', store: 'LOTTE Grosir',
   }, '2026-11-14', 'gemini-3.5-flash-lite');
-  assert.deepEqual(r.items, [{ name: 'INDOMIE GRG CB IJO JUMBO120g', amount: 3900 }, { name: 'ROMA KELAPA 300GR', amount: 18200, qty: 2 }, { name: 'TELUR AYAM NEGERI CURAH /KG', amount: 26317 }]);
+  assert.deepEqual(r.items, [{ name: 'INDOMIE GRG CB IJO JUMBO120g', amount: 3900 }, { name: 'ROMA KELAPA 300GR', amount: 18200, qty: 2 }, { name: 'TELUR AYAM NEGERI CURAH /KG', amount: 26317, qty: 1.024 }]);
   assert.equal(r.total, 48417);
   assert.equal(r.confidence, 'high');
   assert.equal(r.date, '2026-09-16');
@@ -24,4 +24,10 @@ test('Gemini JSON: fees and discounts count; mismatch is "medium"; bad dates are
   assert.equal(miss.confidence, 'medium');
   const none = fromAi({ items: [], discount: 0, fees: 0, total: null }, '2026-11-14');
   assert.equal(none.confidence, 'low');
+});
+
+test('Gemini JSON: the written-out name is used, the printed one kept alongside', () => {
+  const r = fromAi({ items: [{ printed: 'INDOMIEGRGAYAM PGG JMB127G', name: 'Indomie Goreng Ayam Panggang Jumbo 127 g', qty: 1, price: 3900 }], discount: 0, fees: 0, total: 3900 }, '2026-11-14');
+  assert.deepEqual(r.items, [{ name: 'Indomie Goreng Ayam Panggang Jumbo 127 g', amount: 3900, printed: 'INDOMIEGRGAYAM PGG JMB127G' }]);
+  assert.match(r.lines[1], /INDOMIEGRGAYAM PGG JMB127G → Indomie Goreng Ayam Panggang Jumbo 127 g/);
 });

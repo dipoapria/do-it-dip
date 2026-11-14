@@ -19,6 +19,7 @@ import { initStories, openStories, storiesReady } from './stories.ts';
 import * as cloud from './cloud.ts';
 import { scanWithTesseract } from './scan.ts';
 import { readWithAI } from './ai-receipt.ts';
+import { productLabel, receiptTitle } from './names.ts';
 import { extract, NeedPassword } from './filetext.ts';
 import { guessRow, linesToStatement, rowsToStatement } from './statement.ts';
 import { KW } from './model.ts';
@@ -627,15 +628,10 @@ function afterModeRender() { document.querySelectorAll('#modebody .seg').forEach
 const kwHit = (text) => { const t = ' ' + text.toLowerCase() + ' '; for (const w of t.match(/[a-z]+/g) || []) if (store.data.learned[w]) return store.data.learned[w]; for (const [re, c, s] of KW) if (re.test(t)) return { cat: c, sub: s }; return null; };
 /** Known chain decides first (Indomaret → Belanja); then the shop name; a long item list is a shopping trip; then the item names. */
 const receiptGuess = (res) => res.storeCat || kwHit(res.merchant) || (res.items.length >= 3 ? { cat: 'belanja', sub: 'Kebutuhan harian' } : kwHit(res.items.map((i) => i.name).join(' '))) || { cat: 'belanja', sub: 'Kebutuhan harian' };
-/** Receipt names are printed in capitals: "AQUA BTL 600ML" → "Aqua Btl 600ml". */
-const niceName = (n) => (n === n.toUpperCase() ? n.toLowerCase().replace(/(^|\s)(\p{L})/gu, (m, a, b) => a + b.toUpperCase()) : n).trim();
 /** Note from the products: "Aqua Btl 600ml", "Aqua Btl 600ml, Roti Tawar", "Aqua Btl 600ml, Roti Tawar +3". */
-function receiptNote(items) {
-  const names = items.map((it) => niceName(it.name)).filter(Boolean);
-  if (!names.length) return 'Belanja';
-  const head = names.slice(0, 2).join(', ');
-  return (names.length > 2 ? `${head} +${names.length - 2}` : head).slice(0, 60);
-}
+/** The automatic note (transaction title) of the receipt form, kept up to date until the user types their own. */
+const receiptNote = (f) => receiptTitle(f.items.filter((x) => x.name.trim()), f.shop, f.cat);
+function refreshNote(f) { if (f.noteEdited) return; f.note = receiptNote(f); const n = $('stNote'); if (n) n.value = f.note; }
 const stSum = (f) => f.items.reduce((s, it) => s + (Number(it.amount) || 0), 0);
 /** Wallet from how the receipt says it was paid (TUNAI → cash, GOPAY → GoPay, DEBIT → main bank). */
 function receiptWallet(pay) {
@@ -701,8 +697,10 @@ async function startStruk(file) {
     mine.via = via; mine.why = why;
     const g = receiptGuess(res);
     if (!res.lines.length) throw new Error('empty');
-    const items = res.items.map((it) => ({ name: niceName(it.name), amount: it.amount, qty: it.qty }));
-    S.struk = { ...mine, phase: 'done', via, why, res, form: { amount: res.total || stSum({ items }) || 0, items, note: receiptNote(items), noteEdited: false, date: res.date || T(), cat: g.cat, sub: g.sub, wallet: receiptWallet(res.pay) } };
+    const items = res.items.map((it) => ({ name: productLabel(it.name, it.qty), amount: it.amount, qty: it.qty }));
+    const shop = via === 'ai' || res.storeCat ? res.merchant || '' : '';
+    const form = { amount: res.total || stSum({ items }) || 0, items, shop, cat: g.cat };
+    S.struk = { ...mine, phase: 'done', via, why, res, form: { ...form, note: receiptNote(form), noteEdited: false, date: res.date || T(), cat: g.cat, sub: g.sub, wallet: receiptWallet(res.pay) } };
   } catch (e) {
     if (S.struk !== mine) return;
     S.struk = { ...mine, phase: 'error', err: !navigator.onLine ? 'Pemakaian pertama butuh internet untuk mengunduh pembaca teks. Sambungkan internet lalu coba lagi.' : 'Teksnya tidak terbaca. Coba foto lebih dekat, lurus, dan di tempat terang.' };
@@ -899,7 +897,7 @@ function sTx(id) {
     <div class="kv" style="border-top:0"><span>Kategori</span><b>${t.type === 'tf' ? (t.debt ? c.n : 'Transfer') : `${c.n} · ${esc(t.sub)}`}</b></div>
     <div class="kv"><span>${t.type === 'tf' ? 'Dari → Ke' : 'Dompet'}</span><b>${t.type === 'tf' ? `${esc(w.name)} → ${esc(W(t.to).name)}` : esc(w.name)}</b></div>
     <div class="kv"><span>Tanggal</span><b>${longDate(t.date)}</b></div>
-    <div class="kv"><span>Buku</span><b>${(BOOKS[t.book] || BOOKS.pribadi).n}</b></div>${t.items?.length ? `<div class="kv tx-items"><span>Produk</span><div>${t.items.map((it) => `<div><span>${esc(it.name)}${it.qty > 1 ? ` ×${it.qty}` : ''}</span><b>${rp(it.amount)}</b></div>`).join('')}</div></div>` : ''}${rule ? `<div class="kv"><span>Berulang</span><b>${scheduleLabel(rule)} · ${rule.auto ? 'otomatis' : 'tanya dulu'}</b></div>` : ''}</div>
+    <div class="kv"><span>Buku</span><b>${(BOOKS[t.book] || BOOKS.pribadi).n}</b></div>${t.items?.length ? `<div class="kv tx-items"><span>Produk</span><div>${t.items.map((it) => `<div><span>${esc(it.name)}${it.qty > 1 && !/\(\d/.test(it.name) ? ` ×${it.qty}` : ''}</span><b>${rp(it.amount)}</b></div>`).join('')}</div></div>` : ''}${rule ? `<div class="kv"><span>Berulang</span><b>${scheduleLabel(rule)} · ${rule.auto ? 'otomatis' : 'tanya dulu'}</b></div>` : ''}</div>
   ${t.debt ? `<button class="btn2 wide" data-a="debt" data-id="${t.debt}"><i data-lucide="hand-coins"></i>Buka catatan utang & piutang</button>` : txButtons(t, rule)}
   ${t.debtInit ? '' : `<button class="danger" data-a="del" data-id="${t.id}">Hapus transaksi</button>`}`);
 }
@@ -1505,7 +1503,7 @@ function bindEvents() {
       const f = S.struk.form, i = Number(id.slice(6)), it = f.items[i]; if (!it) return;
       if (id[4] === 'n') it.name = e.target.value;
       else { const v = digitsOnly(e.target.value); e.target.value = v ? fmtN(v) : ''; it.amount = Number(v) || 0; }
-      if (!f.noteEdited) { f.note = receiptNote(f.items.filter((x) => x.name.trim())); const n = $('stNote'); if (n) n.value = f.note; }
+      refreshNote(f);
       const sm = $('stSum'); if (sm) sm.innerHTML = stSumHTML(f);
     }
     if (id.startsWith('bf-')) { const v = digitsOnly(e.target.value); e.target.value = v ? fmtN(v) : ''; BF[id.slice(3)] = Number(v) || 0; $('bfTotal').innerHTML = bfTotal(); }
@@ -1704,8 +1702,8 @@ function onClick(e) {
     case 'lockAfter': store.setSetting('lockAfter', Number(d.v)); document.querySelectorAll('#lockSeg button').forEach((b) => b.classList.toggle('on', b.dataset.v === d.v)); placePill($('lockSeg')); break;
     /* struk */
     case 'stRetry': S.struk = { phase: 'idle' }; rerenderMode(); break;
-    case 'stset': { const f = S.struk.form; f[d.k] = d.v; if (d.k === 'cat') f.sub = CATS[d.v].subs[0]; const sc = $('cobody').scrollTop; rerenderMode(); $('cobody').scrollTop = sc; break; }
-    case 'stiDel': { const f = S.struk.form; f.items.splice(Number(d.i), 1); if (!f.noteEdited) f.note = receiptNote(f.items); const sc = $('cobody').scrollTop; rerenderMode(); $('cobody').scrollTop = sc; break; }
+    case 'stset': { const f = S.struk.form; f[d.k] = d.v; if (d.k === 'cat') { f.sub = CATS[d.v].subs[0]; refreshNote(f); } const sc = $('cobody').scrollTop; rerenderMode(); $('cobody').scrollTop = sc; break; }
+    case 'stiDel': { const f = S.struk.form; f.items.splice(Number(d.i), 1); refreshNote(f); const sc = $('cobody').scrollTop; rerenderMode(); $('cobody').scrollTop = sc; break; }
     case 'stiAdd': { S.struk.form.items.push({ name: '', amount: 0 }); const sc = $('cobody').scrollTop; rerenderMode(); $('cobody').scrollTop = sc; later(60, () => $('sti-n-' + (S.struk.form.items.length - 1))?.focus()); break; }
     case 'saveStruk': {
       const f = S.struk.form; if (!f.amount) break;

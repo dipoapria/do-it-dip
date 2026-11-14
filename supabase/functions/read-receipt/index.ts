@@ -17,7 +17,25 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
 
 const PROMPT = `You read a photo of an Indonesian shopping receipt. Return only what was bought and paid, as JSON.
 - items: every purchased product line, in printed order.
-  - name: the product name as printed, WITHOUT item numbers (001, 002), barcodes or PLU codes.
+  - printed: the product name exactly as printed, WITHOUT item numbers (001, 002), barcodes or PLU codes.
+  - name: the same product written out in full so a person understands it, in Indonesian Title Case.
+    This applies to every store (minimarket, supermarket, grosir, apotek, restaurant, SPBU, online shop): shop
+    systems cut names to fit a few columns, so use your knowledge of products sold in Indonesia and the rest of
+    the line to expand every abbreviation you can resolve with confidence. Common ones (not a complete list):
+    GRG = Goreng, PGG = Panggang, JMB = Jumbo, AYM = Ayam, SP/SPC = Spesial, KLDU = Kaldu, BTL = Botol, KLG = Kaleng,
+    SCH/SACH = Sachet, PCH = Pouch, RF/REF = Refill, BOX = Kotak, PK/PCK = Pack, LIQ = Liquid, PWR = Power,
+    ORI = Original, TC = Toilet Cleaner, PG = Pasta Gigi, SMP = Sampo, SBN = Sabun, DTRJ/DTG = Deterjen,
+    MNY/MNYK = Minyak, GRG/GORENG, SS = Susu, KNTL = Kental, UHT, CKLT/COKL = Coklat, STRW/STRB = Strawberry,
+    VNL = Vanila, MNS = Manis, ASN = Asin, PDS = Pedas, PTH = Putih, MRH = Merah, HJ = Hijau, KCL = Kecil,
+    BSR = Besar, SDG = Sedang, ISI = Isi, BKS = Bungkus, KMS = Kemasan, ANK = Anak, DWS = Dewasa, TAB = Tablet,
+    KPL/KAPS = Kapsul, SIR = Sirup, FF = Frisian Flag, IND = Indomilk (in milk names), MIE/MI = Mie, KRP = Kerupuk.
+    Split words that are run together ("INDOMIEGRGAYAM" → "Indomie Goreng Ayam"), write brands the usual way
+    (Indomie, Sedaap, Aqua, Le Minerale, Ultra Milk, Frisian Flag, Rinso, Harpic, So Klin, Golda, Roma, Pepsodent).
+    Sizes: a space before a lower-case unit, and grams always as "gr": "127 gr", "300 gr", "1,5 kg", "200 ml", "1 L".
+    Examples: "INDOMIEGRGAYAM PGG JMB127G" → "Indomie Goreng Ayam Panggang Jumbo 127 gr";
+    "FF SS KNTL MNS PTH 370G" → "Frisian Flag Susu Kental Manis Putih 370 gr";
+    "RINSO MTC CAIR RF 750ML" → "Rinso Matic Cair Refill 750 ml".
+    Only expand what the abbreviation clearly means; when unsure, keep that word as printed. Do not add the quantity.
   - qty: quantity as a number (a weight in kg such as 1.024 is allowed), or null when not printed.
   - price: the line total in rupiah for that product (quantity × unit price, before receipt-level discounts), integer.
   - Never list subtotal, total, tax, service, discount, payment, change, points, cashier or address lines as items.
@@ -33,7 +51,7 @@ Rupiah amounts: "21,500", "21.500" and "Rp 21.500,00" all mean 21500. Read digit
 const SCHEMA = {
   type: 'OBJECT',
   properties: {
-    items: { type: 'ARRAY', items: { type: 'OBJECT', properties: { name: { type: 'STRING' }, qty: { type: 'NUMBER', nullable: true }, price: { type: 'INTEGER' } }, required: ['name', 'price'] } },
+    items: { type: 'ARRAY', items: { type: 'OBJECT', properties: { printed: { type: 'STRING' }, name: { type: 'STRING' }, qty: { type: 'NUMBER', nullable: true }, price: { type: 'INTEGER' } }, required: ['name', 'price'], propertyOrdering: ['printed', 'name', 'qty', 'price'] } },
     discount: { type: 'INTEGER' },
     fees: { type: 'INTEGER' },
     total: { type: 'INTEGER', nullable: true },

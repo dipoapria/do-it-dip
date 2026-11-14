@@ -5,7 +5,7 @@ import { addDays } from './format.ts';
 import { STORES, type Confidence, type ReceiptResult } from './receipt.ts';
 
 export interface AiReceipt {
-  items?: { name?: string; qty?: number | null; price?: number }[];
+  items?: { name?: string; printed?: string; qty?: number | null; price?: number }[];
   discount?: number | null; fees?: number | null; total?: number | null;
   date?: string | null; payment?: string | null; store?: string | null;
 }
@@ -17,9 +17,16 @@ const PAYS = ['cash', 'card', 'qris', 'gopay', 'ovo', 'dana', 'shopeepay', 'link
 /** Gemini's JSON → ReceiptResult. Sure ("high") only when products − discount + fees equal the printed total. */
 export function fromAi(a: AiReceipt, today: string, model = ''): ReceiptResult & { model: string } {
   const items = (a.items ?? [])
-    .map((it) => ({ name: String(it.name ?? '').replace(/^\s*\d{3}[\s.]+/, '').trim(), amount: Math.round(Number(it.price) || 0), qty: typeof it.qty === 'number' && it.qty > 1 && Number.isInteger(it.qty) ? it.qty : undefined }))
+    .map((it) => {
+      const name = String(it.name || it.printed || '').replace(/^\s*\d{3}[\s.]+/, '').trim();
+      const q = typeof it.qty === 'number' && it.qty > 0 ? it.qty : undefined;
+      // whole pieces above 1, or a weight in kg (not a whole number)
+      const qty = q && ((Number.isInteger(q) && q > 1) || !Number.isInteger(q)) ? q : undefined;
+      return { name, amount: Math.round(Number(it.price) || 0), qty, printed: String(it.printed ?? '').trim() };
+    })
     .filter((it) => it.name && it.amount > 0)
-    .map((it) => (it.qty ? it : { name: it.name, amount: it.amount }));
+    .map(({ printed, ...it }) => (printed && printed !== it.name ? { ...it, printed } : it))
+    .map((it) => (it.qty ? it : (({ qty, ...rest }) => rest)(it)));
   const discount = Math.abs(Math.round(Number(a.discount) || 0)), fees = Math.abs(Math.round(Number(a.fees) || 0));
   const total = a.total && a.total > 0 ? Math.round(a.total) : null;
   const sum = items.reduce((s, it) => s + it.amount, 0);
@@ -34,7 +41,7 @@ export function fromAi(a: AiReceipt, today: string, model = ''): ReceiptResult &
   return {
     merchant: known ? known[1] : storeName, storeCat: known ? { cat: known[2], sub: known[3] } : null,
     total: total ?? (sum ? sum - discount + fees : null), subtotal: sum || null, date, items, pay, confidence,
-    lines: [`Dibaca oleh ${model || 'Gemini'}`, ...items.map((it) => `${it.name}  ${it.amount}`), `Diskon ${discount}`, `Biaya ${fees}`, `Total ${total ?? '-'}`], model,
+    lines: [`Dibaca oleh ${model || 'Gemini'}`, ...items.map((it) => `${'printed' in it && it.printed ? `${it.printed} → ` : ''}${it.name}  ${it.amount}`), `Diskon ${discount}`, `Biaya ${fees}`, `Total ${total ?? '-'}`], model,
   };
 }
 
