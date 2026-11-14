@@ -7,7 +7,7 @@
 import { addDays } from './format.ts';
 import { amountsIn, findDate } from './money-text.ts';
 
-export interface ReceiptItem { name: string; amount: number; qty?: number }
+export interface ReceiptItem { name: string; amount: number; qty?: number; /** item number printed on the receipt (001, 002…) */ seq?: number; /** price confirmed by qty × unit price */ sure?: boolean }
 export type Confidence = 'high' | 'medium' | 'low';
 export interface ReceiptResult {
   /** Shop, only used to suggest a category (never shown as an item or note). */
@@ -130,6 +130,16 @@ function moneyOf(l: string): number[] {
   return amountsIn(clean).map((a) => a.value).filter((v) => v !== 0 && Math.abs(v) < 100_000_000);
 }
 const letterCount = (s: string) => (s.match(/\p{L}/gu) || []).length;
+/** One digit dropped, added or changed (OCR: "8,200" for 18,200). */
+function nearMiss(a: number, b: number): boolean {
+  const x = String(a), y = String(b);
+  if (x === y) return false;
+  if (x.length === y.length) return oneDigitOff(a, b);
+  const [s, l] = x.length < y.length ? [x, y] : [y, x];
+  if (l.length - s.length !== 1) return false;
+  for (let i = 0; i < l.length; i++) if (l.slice(0, i) + l.slice(i + 1) === s) return true;
+  return false;
+}
 /** Same number of digits and exactly one differs (a typical OCR misread: 12.090 for 12.000). */
 function oneDigitOff(a: number, b: number): boolean {
   const x = String(a), y = String(b);
@@ -220,6 +230,112 @@ function classify(raw: string): Line {
   return L;
 }
 
+
+/* ---------------- numbered items ("001 INDOMIE …") ---------------- */
+
+/** "001 INDOMIE", "905 HARPIC" (9 = misread 0), "O03 ROMA": the item number and the rest of the line. */
+const SEQ = /^[^\p{L}\p{N}]{0,3}([0O9][0-9OoIl]{2})[\s.,:]+(\S.*)$/u;
+const seqNum = (t: string) => Number(t.replace(/[Oo]/g, '0').replace(/[Il]/g, '1').slice(1));
+/**
+ * Receipts that number their items (Lotte, many supermarkets) print each item as a block of 1–3 lines:
+ *   001 INDOMIEGRGAYAM PGG JMB127G      ← number + name
+ *   0089686041767        3,900          ← barcode + unit price
+ *       1                    3,900      ← quantity (or weight) + line total
+ * Each block is read on its own: the name from its first line, the line total from its last amount, checked
+ * against unit price × quantity (or × weight in kg).
+ */
+function numberedItems(texts: string[], end: number, isStop: (i: number) => boolean = () => false): { items: ReceiptItem[]; start: number; last: number } | null {
+  const heads: { i: number; seq: number; rest: string }[] = [];
+  texts.forEach((t, i) => { if (i >= end) return; const m = t.match(SEQ); if (m && letterCount(m[2]) >= 3) heads.push({ i, seq: seqNum(m[1]), rest: m[2] }); });
+  if (heads.length < 3) return null;
+  // item numbers only go up: a number lower than the one before is a misread ("007" read as "001") and is dropped
+  for (let k = heads.length - 1; k > 0; k--) if (heads[k].seq <= heads[k - 1].seq && heads[k - 1].seq - heads[k].seq > 0) {
+    const prevOk = k - 2 < 0 || heads[k - 2].seq < heads[k - 1].seq;
+    heads.splice(prevOk ? k : k - 1, 1);
+  }
+  if (heads.length < 3) return null;
+  const items: ReceiptItem[] = [];
+  heads.forEach((h, k) => {
+    // a block is the numbered line plus at most two more (barcode + unit price, qty + line total)
+    let stop = Math.min(k + 1 < heads.length ? heads[k + 1].i : end, h.i + 3);
+    // the last block ends where the summary starts
+    for (let j = h.i + 1; j < stop; j++) if (isStop(j) || /\b(t[o0]tal|sub\s*t[o0]tal|jumlah|scode|kembali|tunai|cash|bayar)\b|={4,}|-{6,}/i.test(texts[j])) { stop = j; break; }
+    const lines = texts.slice(h.i, stop).map((l, j) => (j === 0 ? h.rest : l));
+    // name: first line up to the first number that is a price or a code
+    const nameToks: string[] = [];
+    for (const tok of lines[0].split(' ')) { if (/^\d{7,}$/.test(tok) || (/^\d{1,3}([.,]\d{3})+$/.test(tok) && nameToks.length)) break; nameToks.push(tok); }
+    // OCR crumbs after the name ("Oi la", "|"), but not units ("200 ML", "1 L", "/KG")
+    const crumb = (t: string) => /^[^\p{L}\p{N}]+$/u.test(t) || /^0{1,3}\.?$/.test(t) || (t.length <= 2 && /[a-z]/.test(t) && !/^(ml|gr|kg|g|l|lt|pc|cm|mm)$/i.test(t));
+    while (nameToks.length > 1 && crumb(nameToks[nameToks.length - 1])) nameToks.pop();
+    const name = nameToks.join(' ').replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N})/]+$/gu, '').trim();
+    // money and quantities in the block, without barcodes (7+ digits, possibly split by OCR into two tokens)
+    const formatted: { v: number; line: number; raw: string }[] = [], smalls: number[] = [];
+    lines.forEach((l, j) => {
+      const clean = l.replace(/\b\d{7,}\b(\s\d{3,5}\b)?/g, ' ');
+      for (const m of clean.matchAll(/(?<![\d.,])(\d{1,3}(?:[.,]\d{3})+)(?![\d.,]*\d)/g)) { const v = Number(m[1].replace(/[.,]/g, '')); if (v > 0) formatted.push({ v, line: j, raw: m[1] }); }
+      if (j > 0) for (const m of clean.matchAll(/(?:^|\s)(\d{1,2})(?=\s|$)/g)) smalls.push(Number(m[1]));
+    });
+    // a weight in kg prints like an amount ("1.024") between the unit price and the total
+    let weight: number | undefined;
+    if (formatted.length >= 3) {
+      const [u, w, t] = [formatted[0].v, formatted[formatted.length - 2], formatted[formatted.length - 1].v];
+      const kg = w.v / 1000;
+      if (kg > 0.01 && kg < 30 && Math.abs(u * kg - t) <= Math.max(2, t * 0.01)) { weight = kg; formatted.splice(formatted.length - 2, 1); }
+    }
+    const qty = weight ? undefined : smalls.find((n) => n >= 1 && n <= 50);
+    const money = formatted.filter((f) => f.v >= 100);
+    let amount = 0, sure = false;
+    if (money.length >= 2) {
+      const unit = money[0].v, total = money[money.length - 1].v;
+      if (weight) { amount = total; sure = true; }
+      else if ((qty ?? 1) * unit === total) { amount = total; sure = true; }
+      else if (qty && unit * qty % 100 === 0 && total % 100 !== 0) amount = unit * qty;
+      // a line total below the unit price lost a digit ("8,200" for 2 × 9,100 = 18,200)
+      else if (total < unit && (qty ? [qty] : [2, 3, 4, 5]).some((k) => nearMiss(total, unit * k))) amount = unit * (qty ?? [2, 3, 4, 5].find((k) => nearMiss(total, unit * k))!);
+      else amount = total;
+    } else if (money.length === 1) {
+      const a = money[0].v;
+      // one amount on the barcode line is the unit price; on its own line it is the line total
+      amount = money[0].line > 0 && /\d{7,}/.test(lines[money[0].line]) && qty ? a * qty : a;
+    }
+    if (letterCount(name) >= 3) items.push({ name, amount, qty: qty && qty > 1 ? qty : undefined, seq: h.seq, sure });
+    // orphan lines: the next item's number was not read, but its price lines were ("1.024 26,317"); kept without a
+    // name for the next number so that combining readings can use the price (the name comes from another reading)
+    const nextI = k + 1 < heads.length ? heads[k + 1].i : end;
+    if (stop === h.i + 3 && stop < nextI && (k + 1 >= heads.length || heads[k + 1].seq > h.seq + 1)) {
+      let oEnd = stop;
+      while (oEnd < nextI && oEnd < stop + 3 && !isStop(oEnd) && !/\b(t[o0]tal|scode|kembali|tunai|cash)\b|={4,}/i.test(texts[oEnd])) oEnd++;
+      const orphan = texts.slice(stop, oEnd).join(' ').replace(/\b\d{7,}\b/g, ' ');
+      const am = [...orphan.matchAll(/(?<![\d.,])(\d{1,3}(?:[.,]\d{3})+)(?![\d.,]*\d)/g)].map((m) => Number(m[1].replace(/[.,]/g, ''))).filter((v) => v >= 100);
+      if (am.length) items.push({ name: '', amount: am[am.length - 1], seq: h.seq + 1, sure: false });
+    }
+  });
+  return { items, start: heads[0].i, last: heads[heads.length - 1].i };
+}
+
+/* ---------------- date ---------------- */
+
+/**
+ * Candidate purchase dates with a score: a full date with its year (+2), next to a time ("26.10.26-13:12",
+ * "Jam:20:37") (+3). A short "5-6" without year only counts next to a time, so an address like "KAV 5-6" is
+ * never a date. Only dates within the last ~13 months.
+ */
+export function dateScores(lines: string[], today: string): Map<string, number> {
+  const year = Number(today.slice(0, 4)), oldest = addDays(today, -400), out = new Map<string, number>();
+  for (const raw of lines) {
+    const l = raw.replace(/(\d)([A-Za-z])/g, '$1 $2').replace(/([A-Za-z])(\d)/g, '$1 $2'); // "2026Jam" → "2026 Jam"
+    for (const y of [year, year - 1]) {
+      const d = findDate(l, y); if (!d || d.date > today || d.date < oldest) continue;
+      const hasYear = /\d{4}|\d{1,2}[./-]\d{1,2}[./-]\d{2}\b/.test(d.raw) || /[a-z]{3}/i.test(d.raw);
+      const timed = /\d{1,2}[:.]\d{2}([:.]\d{2})?(?!\d)/.test(l.replace(d.raw, ' '));
+      if (!hasYear && !timed) break;
+      out.set(d.date, (out.get(d.date) || 0) + 1 + (hasYear ? 2 : 0) + (timed ? 3 : 0));
+      break;
+    }
+  }
+  return out;
+}
+
 /* ---------------- shops, payment ---------------- */
 
 /** Known chains: matched loosely because OCR mangles logos and headers (INDOMARCO, ALFARIA…). */
@@ -273,9 +389,13 @@ export function parseReceipt(text: string, today: string): ReceiptResult {
     return finish({ items: total && letterCount(name) >= 3 ? [{ name, amount: total }] : [], total, subtotal: total, confidence: !total ? 'low' : ok ? 'high' : 'medium' }, L, rawLines, all, today);
   }
 
-  // The summary starts at the first subtotal/total/payment line that follows at least one item.
-  const firstItem = L.findIndex((l) => l.kind === 'item' || l.kind === 'name');
-  let sumStart = L.findIndex((l, i) => i > firstItem && ['subtotal', 'total', 'cash', 'card', 'change', 'count'].includes(l.kind));
+  // Column header ("Nama  Harga satuan  Qty  Harga Jual"): items start below it, never in the shop's header.
+  const colHead = L.findIndex((l) => /\b(nama|item|deskripsi|description|barang)\b.*\b(harga|qty|jumlah|total|jual)\b/i.test(l.text) && l.amount === null);
+  // Numbered items ("001 …"): read as blocks; the summary starts after the last numbered item.
+  const sumKinds = ['subtotal', 'total', 'cash', 'card', 'change', 'count'];
+  const numbered = numberedItems(L.map((l) => l.text), L.length, (i) => sumKinds.includes(L[i].kind) || L[i].kind === 'fee');
+  const firstItem = numbered ? numbered.start : L.findIndex((l, i) => i > colHead && (l.kind === 'item' || l.kind === 'name'));
+  let sumStart = L.findIndex((l, i) => i > (numbered ? numbered.last : firstItem) && sumKinds.includes(l.kind));
   if (sumStart < 0) sumStart = L.length;
 
   // Items, joining two-line items ("GULA PASIR 1KG" / "2 x 16.000   32.000") and collecting item discounts.
@@ -284,7 +404,8 @@ export function parseReceipt(text: string, today: string): ReceiptResult {
   const used = new Set<number>();
   const promoted: number[] = []; // amounts of total lines OCR made look like an item ('JTAL 37.000')
   let itemDisc = 0;
-  for (let i = 0; i < sumStart; i++) {
+  if (numbered) for (const it of numbered.items) { items.push(it); units.push(undefined); }
+  for (let i = numbered ? sumStart : Math.max(0, colHead + 1); i < sumStart; i++) {
     const l = L[i], next = L[i + 1];
     const nextIsQty = next && i + 1 < sumStart && (next.kind === 'qty' || (next.kind === 'amount' && l.kind === 'name'));
     if ((l.kind === 'name' || (l.kind === 'item' && nextIsQty && (l.item!.amount < 1000 || /^\s*\d{1,3}\s*[xX×@]/.test(next.text)))) && nextIsQty && next.amount) {
@@ -307,18 +428,25 @@ export function parseReceipt(text: string, today: string): ReceiptResult {
 
   // Summary values
   const after = L.slice(sumStart);
+  // "Jumlah 100.000" printed after the total with change following is the cash handed over, not a total
+  const firstTot = after.find((l) => l.kind === 'total' && l.amount);
+  if (firstTot && after.some((l) => l.kind === 'change')) for (const l of after) if (l !== firstTot && l.kind === 'total' && l.amount && l.amount > firstTot.amount! && /jumlah|bayar/i.test(l.text) && !/harus|total\s*bayar/i.test(l.text)) l.kind = 'cash';
   const pick = (kind: Kind) => after.filter((l) => l.kind === kind && l.amount !== null && l.amount > 0).map((l) => l.amount!);
   const totals = pick('total').concat(promoted), subs = pick('subtotal'), cash = pick('cash'), change = after.filter((l) => l.kind === 'change' && l.amount !== null).map((l) => l.amount!), cards = pick('card');
   const totalIdx = after.findIndex((l) => l.kind === 'total' && l.amount);
   const subIdx = after.findIndex((l) => l.kind === 'subtotal');
   // service/tax added between subtotal and total (or before total without a subtotal); later ones are informational
-  const fees = after.filter((l, i) => l.kind === 'fee' && l.amount && i < (totalIdx >= 0 ? totalIdx : after.length) && i > subIdx && !/dpp|harga\s*jual|termasuk|incl/i.test(l.text)).reduce((s, l) => s + l.amount!, 0);
+  // Between SUBTOTAL and TOTAL a receipt only prints adjustments, so an amount there is a fee even when OCR mangled
+  // its label ("ervice 5$", "PEL 10X" for Service 5% / PB1 10%).
+  const between = (i: number) => subIdx >= 0 && totalIdx > subIdx && i > subIdx && i < totalIdx;
+  const fees = after.filter((l, i) => l.amount && ((l.kind === 'fee' && i < (totalIdx >= 0 ? totalIdx : after.length) && i > subIdx) || (between(i) && !['discount', 'fee', 'count', 'subtotal'].includes(l.kind))) && !/dpp|harga\s*jual|termasuk|incl/i.test(l.text)).reduce((s, l) => s + l.amount!, 0);
   const totDiscLine = after.find((l, i) => l.kind === 'discount' && l.amount && (totalIdx < 0 || i < totalIdx));
   const discount = totDiscLine?.amount ?? itemDisc;
   // a lone amount right after the items with no keyword ("Nasi 15.000 / Teh 5.000 / 20.000")
   const lone = L.find((l, i) => i >= Math.max(0, sumStart - 1) && !used.has(i) && l.kind === 'amount' && l.amount)?.amount;
 
-  const payTotals = [...(cash.length && change.length ? [cash[0] - change[0]] : []), ...cards, ...(cash.length && !change.length ? cash : [])].filter((v) => v > 0);
+  // cash − change for every cash amount (the cash line may show the total and "Jumlah" the money handed over)
+  const payTotals = [...(change.length ? cash.map((c) => c - change[0]) : cash), ...cards, ...(change.length ? cash.filter((c) => totals.includes(c)) : [])].filter((v) => v > 0);
   const anchors = [...totals, ...payTotals, ...(subs.length ? [subs[0] - discount + fees] : [])];
   // an "item" larger than anything the summary says was paid is a misread header number (NPWP, phone, code)
   if (anchors.length) { const cap = Math.max(...anchors) + discount; for (let k = items.length - 1; k >= 0; k--) if (items[k].amount > cap) { items.splice(k, 1); units.splice(k, 1); } }
@@ -331,6 +459,16 @@ export function parseReceipt(text: string, today: string): ReceiptResult {
     const u = units[k], want = u ? u * (it.qty ?? 1) : 0;
     if (want && it.amount % 100 !== 0 && want % 100 === 0 && oneDigitOff(it.amount, want)) it.amount = want;
   });
+  // A line that contradicts itself ("1 @ 55.000 → 55.800") is misread; when qty × unit makes the items agree with
+  // the money handed over (cash − change, card), that independent proof beats a TOTAL line misread the same way.
+  {
+    const bad = items.map((it, k) => (units[k] && units[k]! * (it.qty ?? 1) !== it.amount ? k : -1)).filter((k) => k >= 0);
+    if (bad.length) {
+      const saved = items.map((it) => it.amount);
+      bad.forEach((k) => (items[k].amount = units[k]! * (items[k].qty ?? 1)));
+      if (!payTotals.includes(expected()) || payTotals.includes(saved.reduce((s, v) => s + v, 0) - discount + fees)) saved.forEach((v, k) => (items[k].amount = v));
+    }
+  }
   // Zeros read as 8/9/6/3 ("63.080", "12.588"): shop prices are nearly always whole hundreds. Rounding the odd
   // prices down to the hundred is kept when it makes the items add up to the summary.
   const oddFix = (v: number) => (v >= 1000 && v % 100 !== 0 && /[0-35689]{2}$/.test(String(v)) ? Math.floor(v / 100) * 100 : v);
@@ -359,7 +497,9 @@ export function parseReceipt(text: string, today: string): ReceiptResult {
   // items' sum only counts when it agrees with one of those, because items can be missed or misread.
   const exp = expected();
   const src: [number, number][] = [
-    ...totals.map((v, i): [number, number] => [v, i === 0 ? 3 : 1.5]),
+    // "TOTAL HARUS DIBAYAR" / "GRAND TOTAL" / "TOTAL BAYAR" name what was paid; a plain first TOTAL is close behind
+    ...after.filter((l) => l.kind === 'total' && l.amount).map((l, i): [number, number] => [l.amount!, /harus|grand|total\s*(bayar|belanja|pembayaran)/i.test(l.text) ? 3 : i === 0 ? 2.5 : 1.5]),
+    ...promoted.map((v): [number, number] => [v, 2]),
     ...payTotals.map((v): [number, number] => [v, 2]),
     ...(subs.length ? [[subs[0] - discount + fees, 1.5] as [number, number]] : []),
     ...(lone ? [[lone, 1] as [number, number]] : []),
@@ -375,14 +515,15 @@ export function parseReceipt(text: string, today: string): ReceiptResult {
   if (total === null && items.length) total = exp; // nothing in the summary was readable
 
   // Items that are really the total, payment or a header number never stay in the list.
-  let finalItems = items.filter((it) => it.amount > 0 && (total === null || it.amount <= total + discount));
+  let finalItems = items.filter((it) => (it.amount > 0 || it.seq !== undefined) && (total === null || it.amount <= total + discount));
   if (total !== null && finalItems.length > 1) finalItems = finalItems.filter((it) => !(it.amount === total && finalItems.length > 1 && sumItems() - it.amount === total));
 
   const fsum = finalItems.reduce((s, it) => s + it.amount, 0);
   const sources = total === null ? 0 : src.filter(([v]) => v === total).length + (src.some(([v]) => v !== total && oneDigitOff(v, total!)) ? 1 : 0);
   const itemsMatch = total !== null && finalItems.length > 0 && (fsum - discount + fees === total || (subs.length > 0 && fsum === subs[0]));
   // retail totals are whole hundreds; an odd one without tax/service is likely a misread
-  const plausible = total !== null && (total % 100 === 0 || fees > 0)
+  // (weighed goods, confirmed by unit price × kg, explain an odd total too)
+  const plausible = total !== null && (total % 100 === 0 || fees > 0 || finalItems.some((it) => it.sure && it.amount % 100 !== 0))
     // tax/service lines whose amounts were not read: the subtotal is not what was paid
     && !(after.some((l) => l.kind === 'fee' && !l.amount && !/dpp|harga\s*jual/i.test(l.text)) && fees === 0 && subs.includes(total));
   const confidence: Confidence = itemsMatch && sources >= 1 && plausible ? 'high' : total !== null && (sources >= 2 || (sources >= 1 && finalItems.length > 0)) ? 'medium' : 'low';
@@ -390,17 +531,8 @@ export function parseReceipt(text: string, today: string): ReceiptResult {
 }
 
 function finish(core: { items: ReceiptItem[]; total: number | null; subtotal: number | null; confidence: Confidence }, L: Line[], lines: string[], all: string, today: string): ReceiptResult {
-  // Date: prefer one printed next to a time (receipt header "26.10.26-13:12"), within the last ~13 months.
-  const year = Number(today.slice(0, 4)), oldest = addDays(today, -400);
-  let date: string | null = null, dateScore = -1;
-  lines.forEach((l) => {
-    for (const y of [year, year - 1]) {
-      const d = findDate(l, y); if (!d || d.date > today || d.date < oldest) continue;
-      const score = (/\d{1,2}:\d{2}/.test(l) ? 3 : 0) + (/^\d{1,2}[./-]\d{1,2}[./-]\d{2,4}$/.test(d.raw) ? 1 : 0);
-      if (score > dateScore) { dateScore = score; date = d.date; }
-      break;
-    }
-  });
+  let date: string | null = null, dateScore = 0;
+  for (const [d, sc] of dateScores(lines, today)) if (sc > dateScore) { dateScore = sc; date = d; }
   let merchant = '', storeCat: ReceiptResult['storeCat'] = null;
   const store = STORES.find(([re]) => re.test(all));
   if (store) { merchant = store[1]; storeCat = { cat: store[2], sub: store[3] }; }
@@ -411,6 +543,72 @@ function finish(core: { items: ReceiptItem[]; total: number | null; subtotal: nu
     }
   }
   const pay = PAY.find(([re]) => re.test(all))?.[1] ?? null;
-  const items = core.items.map((it) => ({ name: it.name, amount: it.amount, ...(it.qty && it.qty > 1 ? { qty: it.qty } : {}) }));
+  const items = core.items.map((it) => ({ name: it.name, amount: it.amount, ...(it.qty && it.qty > 1 ? { qty: it.qty } : {}), ...(it.seq !== undefined ? { seq: it.seq, sure: !!it.sure } : {}) }));
   return { merchant, storeCat, total: core.total, subtotal: core.subtotal, date, items, pay, confidence: core.confidence, lines };
+}
+
+/**
+ * Numbered receipts read several times (different image clean-ups): every reading may miss or misread different
+ * items, but the item numbers line them up. Per number keep the reading whose price is confirmed (qty × unit), else
+ * the most frequent price; the name with the most letters. Returns null when the receipt is not numbered.
+ */
+export function mergeNumbered(results: ReceiptResult[]): ReceiptResult | null {
+  const withSeq = results.filter((r) => r.items.filter((it) => it.seq !== undefined).length >= 3);
+  if (!withSeq.length) return null;
+  const bySeq = new Map<number, ReceiptItem[]>();
+  for (const r of withSeq) for (const it of r.items) if (it.seq !== undefined) bySeq.set(it.seq, [...(bySeq.get(it.seq) || []), it]);
+  const norm = (n: string) => n.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const sim = (a: string, b: string) => { const x = norm(a), y = norm(b); if (!x || !y) return 0; const L = Math.max(x.length, y.length); let same = 0; for (let i = 0; i < Math.min(x.length, y.length); i++) if (x[i] === y[i]) same++; return same / L; };
+  const clean = (n: string) => letterCount(n) / Math.max(1, n.replace(/\s/g, '').length);
+  // numbers no reading could name (an orphan price after the last item, i.e. the total) are not items
+  const seqs = [...bySeq.keys()].filter((q) => bySeq.get(q)!.some((r) => r.name)).sort((a, b) => a - b);
+
+  // total: the value most readings agree on
+  const totals = new Map<number, number>();
+  for (const r of results) if (r.total) totals.set(r.total, (totals.get(r.total) || 0) + (r.confidence === 'high' ? 2 : 1));
+  let total: number | null = null, tn = 0;
+  for (const [v, c] of totals) if (c > tn) { total = v; tn = c; }
+
+  // per item: candidate prices with a cost (0 = confirmed or most frequent reading … 3 = unit × 2 or × 3)
+  const cands = seqs.map((seq) => {
+    const rs = bySeq.get(seq)!, count = new Map<number, number>();
+    for (const r of rs) if (r.amount > 0) count.set(r.amount, (count.get(r.amount) || 0) + (r.sure ? 3 : 1));
+    const ranked = [...count.entries()].sort((a, b) => b[1] - a[1] || (a[0] % 100 === 0 ? -1 : 1));
+    const out: [number, number][] = ranked.map(([v], i) => [v, i === 0 ? 0 : 1]);
+    for (const [v] of ranked.slice(0, 2)) for (const k of [2, 3]) if (!count.has(v * k)) out.push([v * k, 3]);
+    if (!out.length) out.push([0, 0]);
+    return out;
+  });
+  let pick = cands.map((c) => c[0][0]);
+  const sumOf = (xs: number[]) => xs.reduce((s, v) => s + v, 0);
+  if (total !== null && sumOf(pick) !== total) {
+    // cheapest combination that adds up exactly to the total (few items × few candidates: a small search)
+    let best: { cost: number; xs: number[] } | null = null;
+    const walk = (k: number, acc: number, cost: number, xs: number[]) => {
+      if (best && cost >= best.cost) return;
+      if (k === cands.length) { if (acc === total) best = { cost, xs: xs.slice() }; return; }
+      for (const [v, c] of cands[k]) { xs.push(v); walk(k + 1, acc + v, cost + c, xs); xs.pop(); }
+    };
+    if (cands.reduce((n, c) => n * c.length, 1) <= 300000) walk(0, 0, 0, []);
+    if (best) pick = (best as { xs: number[] }).xs;
+  }
+  const items: ReceiptItem[] = seqs.map((seq, k) => {
+    const rs = bySeq.get(seq)!;
+    // the name most readings agree with (a misread number can bring another item's name)
+    const names = rs.map((r) => r.name).filter((x) => x && clean(x) >= 0.6);
+    const pool = names.length ? names : rs.map((r) => r.name);
+    const name = pool.slice().sort((a, b) => pool.reduce((s, o) => s + sim(b, o), 0) - pool.reduce((s, o) => s + sim(a, o), 0) || letterCount(b) - letterCount(a))[0];
+    const src = rs.find((r) => r.amount === pick[k]);
+    const unitQty = rs.find((r) => r.amount > 0 && pick[k] % r.amount === 0 && pick[k] / r.amount > 1);
+    const qty = src?.qty ?? (unitQty ? pick[k] / unitQty.amount : undefined);
+    return { name, amount: pick[k], seq, sure: !!src?.sure, ...(qty && qty > 1 ? { qty } : {}) };
+  });
+  for (let k = items.length - 1; k >= 0; k--) if (!items[k].name) items.splice(k, 1);
+  const sum = sumOf(items.map((it) => it.amount));
+  const confidence: Confidence = total !== null && sum === total && items.every((it) => it.amount > 0) ? 'high' : total !== null ? 'medium' : 'low';
+  // date: scores of every date seen in every reading, added up
+  const dates = new Map<string, number>(), today = new Date().toISOString().slice(0, 10);
+  for (const r of results) for (const [d, sc] of dateScores(r.lines, r.date && r.date > today ? r.date : today)) dates.set(d, (dates.get(d) || 0) + sc);
+  const date = [...dates.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? results.map((r) => r.date).find(Boolean) ?? null;
+  return { ...withSeq[0], items, total, confidence, date };
 }

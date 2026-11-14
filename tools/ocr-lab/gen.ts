@@ -213,7 +213,28 @@ function toko_roti(r: Rng, now: Date): Built {
   return { lines, width: W, items, subtotal: total, discount: 0, extra: 0, total, date: iso(p) };
 }
 
-export const TEMPLATES = { indomaret, alfamart, kelontong, kafe, spbu, apotek, supermarket, toko_roti } as const;
+/** Wholesale/supermarket layout with numbered 3-line items (number + name / barcode + unit price / qty + total). */
+function grosir(r: Rng, now: Date): Built {
+  const W = 46, p = dateParts(r, now), items = basket(r, MINI.concat(SUPER), 3, 10, 3);
+  // sometimes a weighed item: unit price per kg × weight
+  if (r.chance(0.5)) { const kg = Math.round(r.range(0.3, 2.5) * 1000) / 1000, unit = r.pick([25700, 34900, 128000]); items.push({ name: r.pick(['TELUR AYAM NEGERI CURAH /KG', 'DAGING AYAM UTUH /KG', 'GULA PASIR CURAH /KG']), qty: 1, price: Math.round(unit * kg), kgUnit: unit, kg } as TruthItem & { kgUnit: number; kg: number }); }
+  const total = items.reduce((s, i) => s + i.price, 0), cash = cashFor(r, total);
+  const lines: RLine[] = [L(r.pick(['LOTTE Grosir', 'GROSIR MAKMUR', 'PRIMA FRESHMART']), { align: 'c', bold: true, big: true }), L('PT SHOPPING INDONESIA'), L(r.pick(STREETS)),
+    L(`0711-${r.int(300000, 899999)}`), L(`01.562.024.8-092.${r.int(100, 999)}`), L(`Tgl.Pembelian:${pad2(p.d)}-${pad2(p.m)}-${p.y}Jam:${pad2(p.hh)}:${pad2(p.mm)}:${pad2(p.ss)}`),
+    L(`${p.y}-${pad2(p.m)}-${pad2(p.d)} ${pad2(p.hh)}:${pad2(p.mm)} POS:${r.int(1000, 9999)}-${r.int(1000, 9999)}`), dash(W, '='), L('Nama            Harga satuan  Qty Harga Jual'), dash(W)];
+  items.forEach((it, k) => {
+    const x = it as TruthItem & { kgUnit?: number; kg?: number }, bc = String(r.int(1e12, 9e12)).padStart(13, '0');
+    lines.push(L(`${String(k + 1).padStart(3, '0')} ${it.name}`));
+    lines.push(L(`${bc}${rjust(fmt(x.kgUnit ?? unitOf(it), ','), 16)}`));
+    lines.push(L(lr(`${' '.repeat(22)}${x.kg !== undefined ? x.kg.toFixed(3) : it.qty}`, fmt(it.price, ','), W)));
+  });
+  lines.push(L(`SCode:${r.int(1e9, 9e9)}${r.int(1e9, 9e9)}`), dash(W, '='), L(lr('TOTAL SUM', fmt(total, ','), W)), L(lr('TOTAL HARUS DIBAYAR', fmt(total, ','), W)), dash(W, '='),
+    L(lr('CASH', fmt(total, ','), W)), L(lr('Jumlah', fmt(cash, ','), W)), L(lr('KEMBALIAN', fmt(cash - total, ','), W)),
+    L(`TOTAL_ITEM : ${items.length} TOTAL_QTY : ${items.reduce((s, i) => s + i.qty, 0)}`), L('Harga jual sudah termasuk PPN'), L(`POINT : 8711-0000-XXXX-${r.int(1000, 9999)}`));
+  return { lines, width: W, items: items.map((i) => ({ name: i.name, qty: i.qty, price: i.price })), subtotal: total, discount: 0, extra: 0, total, date: iso(p) };
+}
+
+export const TEMPLATES = { indomaret, alfamart, kelontong, kafe, spbu, apotek, supermarket, toko_roti, grosir } as const;
 export type TemplateName = keyof typeof TEMPLATES;
 
 export function makeSample(seed: number, difficulty: Diff, template?: TemplateName, now = new Date('2026-11-14T12:00:00')): Sample {

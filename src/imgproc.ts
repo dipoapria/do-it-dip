@@ -10,6 +10,25 @@ export function fromRGBA(rgba: Uint8ClampedArray, w: number, h: number): Gray {
   for (let i = 0, p = 0; p < d.length; i += 4, p++) d[p] = (rgba[i] * 77 + rgba[i + 1] * 150 + rgba[i + 2] * 29) >> 8;
   return { w, h, d };
 }
+/**
+ * How paper-like each pixel is: bright and colourless. Receipt paper is white/grey even in shade, while tables,
+ * fabric, pink placemats and fingers have colour, so this separates paper from background better than brightness.
+ */
+export function paperness(rgba: Uint8ClampedArray, w: number, h: number): Gray {
+  const d = new Uint8ClampedArray(w * h);
+  for (let i = 0, p = 0; p < d.length; i += 4, p++) {
+    const r = rgba[i], g = rgba[i + 1], b = rgba[i + 2];
+    const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+    d[p] = ((r * 77 + g * 150 + b * 29) >> 8) - 1.6 * (mx - mn);
+  }
+  return { w, h, d };
+}
+/** Share of the dark (ink) pixels of `g` that lie outside `mask`: high means the mask would erase text. */
+export function inkOutside(g: Gray, mask: Gray): number {
+  let ink = 0, out = 0;
+  for (let i = 0; i < g.d.length; i += 3) if (g.d[i] < 110) { ink++; if (!mask.d[i]) out++; }
+  return ink ? out / ink : 0;
+}
 export function toRGBA(g: Gray): Uint8ClampedArray<ArrayBuffer> {
   const o = new Uint8ClampedArray(g.w * g.h * 4);
   for (let p = 0, i = 0; p < g.d.length; p++, i += 4) { o[i] = o[i + 1] = o[i + 2] = g.d[p]; o[i + 3] = 255; }

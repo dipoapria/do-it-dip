@@ -9,7 +9,7 @@ import { parseReceipt } from '../../src/receipt.ts';
 
 const q = new URLSearchParams(location.search);
 const N = Number(q.get('n') || 2), SEED = Number(q.get('seed') || 1), WORKERS = Number(q.get('w') || 4), PIPE = q.get('pipe') || 'new';
-const DIFFS = (q.get('d') || 'easy,medium,hard,extreme').split(',') as Diff[];
+const DIFFS = (q.get('file') ? '' : q.get('d') || 'easy,medium,hard,extreme').split(',').filter(Boolean) as Diff[];
 const TPLS = (q.get('t') || Object.keys(TEMPLATES).join(',')).split(',') as TemplateName[];
 const TODAY = '2026-11-14';
 const $ = (id: string) => document.getElementById(id)!;
@@ -29,6 +29,7 @@ async function main() {
     status(`Membuat struk ${cases.length}…`);
   }
   if (q.get('show')) { await showPrep(cases); return; }
+  if (q.get('file')) { await scanFile(q.get('file')!); return; }
   status(`Menyiapkan ${WORKERS} pembaca…`);
   // one scheduler per page-segmentation mode (Tesseract parameters are per worker)
   const scheds: Record<string, ReturnType<typeof createScheduler>> = {};
@@ -70,6 +71,20 @@ async function main() {
   (window as any).__lab.done = true;
 }
 
+/** ?file=samples/x.jpg: scan one real photo with the app's scanner, forcing all attempts, and show every reading. */
+async function scanFile(path: string) {
+  status('Membaca file ' + path + '…');
+  const blob = await (await fetch('./' + path)).blob();
+  const { scanWithTesseract } = await import('../../src/scan.ts');
+  const out = await scanWithTesseract(blob, TODAY, (_p, l) => status(l));
+  (window as any).__lab.file = out;
+  const res = out.result;
+  $('summary').innerHTML = `<h3>Hasil akhir · ${res.confidence} · total ${res.total} · tanggal ${res.date}</h3><pre>${res.items.map((it) => `${it.seq ?? ''} ${it.name} = ${it.amount}${it.qty ? ' x' + it.qty : ''}`).join('\n')}</pre>`;
+  $('cases').innerHTML = out.attempts.map((a) => `<div class="case"><b>${a.name}</b> · ${a.confidence} · total ${a.total} · ${a.items} produk<pre style="max-height:none">${a.text.replace(/</g, '&lt;')}</pre></div>`).join('');
+  status(`Selesai: sudut ${out.angle}°, ${out.cropped ? 'dipotong' : 'tidak dipotong'}`);
+  (window as any).__lab.done = true;
+}
+
 /** ?show=1: show each photo next to the cleaned image the scanner feeds to OCR (no OCR run). */
 async function showPrep(cases: { truth: Truth; blob: Blob }[]) {
   const ip = await import('../../src/imgproc.ts'), { prepare } = await import('../../src/scan.ts');
@@ -77,8 +92,9 @@ async function showPrep(cases: { truth: Truth; blob: Blob }[]) {
   for (const c of cases) {
     const bmp = await createImageBitmap(c.blob), cv = document.createElement('canvas'); cv.width = bmp.width; cv.height = bmp.height;
     const g = cv.getContext('2d')!; g.drawImage(bmp, 0, 0);
-    const raw = ip.fromRGBA(g.getImageData(0, 0, cv.width, cv.height).data, cv.width, cv.height);
-    const p = prepare(raw, q.get('pitch') ? Number(q.get('pitch')) : undefined);
+    const px = g.getImageData(0, 0, cv.width, cv.height).data;
+    const raw = ip.fromRGBA(px, cv.width, cv.height);
+    const p = prepare(raw, q.get('pitch') ? Number(q.get('pitch')) : undefined, ip.paperness(px, cv.width, cv.height));
     const oc = document.createElement('canvas'); oc.width = p.img.w; oc.height = p.img.h;
     oc.getContext('2d')!.putImageData(new ImageData(ip.toRGBA(p.img), p.img.w, p.img.h), 0, 0);
     html.push(`<div class="case"><b>${c.truth.id}</b> · sudut ${p.angle}° · ${p.cropped ? 'dipotong' : 'tidak dipotong'} · jarak baris ${p.pitch}px · skala ${p.scale.toFixed(2)} · ${p.img.w}×${p.img.h}<div style="display:flex;gap:6px"><img src="${URL.createObjectURL(c.blob)}" style="width:50%"><img src="${oc.toDataURL('image/jpeg', 0.8)}" style="width:50%;background:#fff"></div></div>`);

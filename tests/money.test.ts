@@ -264,3 +264,92 @@ CASH : Rp. 105.000`, '2026-11-10');
   assert.equal(fuelOk.confidence, 'high');
   assert.equal(parseReceipt('TOKO\nTEH 5.000\nTOTAL 5.00€\nTUNAI 10.000\nKEMBALI 5.000', '2026-11-10').total, 5000);
 });
+
+test('receipt: numbered 3-line items (Lotte Grosir layout), weights in kg, no item numbers in names', () => {
+  const text = `LOTTE Grosir
+PT LOTTE SHOPPING INDONESIA
+2026-09-16 20:37 POS:2105-0134
+Nama Harga satuan Qty Harga Jual
+001 INDOMIEGRGAYAM PGG JMB127G
+0089686041767 3,900
+1 3,900
+002 INDOMIE GRG CB IJO JUMBO120g
+0089686043860 3,900
+1 3,900
+003 INDOMIEGORENGJUMBO129G
+0089686041705 3,900
+1 3,900
+004 ROMA KELAPA 300GR
+8996001301142 9,100
+2 18,200
+005 HARPIC PWR TC ORIGINAL 200ML
+8993560033040 14,000
+1 14,000
+006 SO KLIN LIQ KOREAN 525/510gr
+8998866624336 10,900
+1 10,900
+007 GOLDA CAPPUCINO PET 200 ML
+8998866202893 3,400
+1 3,400
+008 TELUR AYAM NEGERI CURAH /KG
+2034120000006 25,700
+1.024 26,317
+SCode:20341270026317010247
+TOTAL SUM 84,517
+TOTAL HARUS DIBAYAR 84,517
+CASH 84,517
+Jumlah 100,000
+KEMBALIAN 15,483
+TOTAL_ITEM : 8 TOTAL_QTY : 9
+Harga jual sudah termasuk PPN`;
+  const r = parseReceipt(text, '2026-11-14');
+  assert.deepEqual(r.items.map((i) => [i.name, i.amount]), [
+    ['INDOMIEGRGAYAM PGG JMB127G', 3900], ['INDOMIE GRG CB IJO JUMBO120g', 3900], ['INDOMIEGORENGJUMBO129G', 3900], ['ROMA KELAPA 300GR', 18200],
+    ['HARPIC PWR TC ORIGINAL 200ML', 14000], ['SO KLIN LIQ KOREAN 525/510gr', 10900], ['GOLDA CAPPUCINO PET 200 ML', 3400], ['TELUR AYAM NEGERI CURAH /KG', 26317],
+  ]);
+  assert.equal(r.items[3].qty, 2);
+  assert.equal(r.total, 84517);
+  assert.equal(r.date, '2026-09-16');
+  assert.equal(r.confidence, 'high');
+});
+
+test('receipt: numbered items survive OCR noise (9 for 0 in the number, garbage after names)', () => {
+  const r = parseReceipt(`Nama Harga satuan Qty Harga Jual
+001 INDOMIE GRG
+0089686043860 3,900
+1 3,900
+905 HARPIC PWR TC ORIGINAL 200ML |
+| 8993560033040 , 14.000 14.000 Oi la
+006 SO KLIN LIO KOREAN 525/510gr
+8998866624336 10.900
+1 10.900
+TOTAL HARUS DIBAYAR 28,800
+CASH 50,000
+KEMBALIAN 21,200`, '2026-11-14');
+  assert.deepEqual(r.items.map((i) => [i.name, i.amount, i.seq]), [['INDOMIE GRG', 3900, 1], ['HARPIC PWR TC ORIGINAL 200ML', 14000, 5], ['SO KLIN LIO KOREAN 525/510gr', 10900, 6]]);
+  assert.equal(r.total, 28800);
+  assert.equal(r.confidence, 'high');
+});
+
+test('receipt: self-contradicting line fixed by the payment; mangled fee labels between subtotal and total', () => {
+  const roti = parseReceipt(`HOLLAND BAKERY
+PIZZA MINI SOSIS 1 @ 13.000 13.000
+BROWNIES PANGGANG 1 @ 55.000 55.800
+ROTI ABON SAPI 1 @ 12.000 12.000
+JUMLAH 80.800
+DIBAYAR 100.000
+KEMBALI 20.000`, '2026-11-10');
+  assert.equal(roti.items[1].amount, 55000);
+  assert.equal(roti.total, 80000);
+  const kafe = parseReceipt(`KEDAI SENJA
+1 Lemon Tea Ic 15.000
+1 Americano Ice 22.000
+3 Jus Alpukat 60.000
+btotal 97.000
+ervice 5$ 4.850
+PEL 10X 10.185
+TOTAL 132.035
+TUNAI 112.035`, '2026-11-10');
+  assert.equal(kafe.total, 112035);
+  assert.equal(kafe.items.length, 3);
+});

@@ -3,3 +3,6 @@ dist/
 dev-dist/
 *.log
 .DS_Store
+
+# real receipt photos used for tuning stay on this computer (personal data)
+tools/ocr-lab/samples/
