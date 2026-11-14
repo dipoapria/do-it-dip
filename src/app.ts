@@ -12,6 +12,7 @@ import {
   HandCoins, Handshake, Target, Plane, Car, Bike, Heart, Baby, Gem,
 } from 'lucide';
 import { allocated, debtDone, debtLeft, debtPaid, etaMonths, goalLeft, goalPct, goalSaved, monthlyNeed, netWorth, openingTx, paymentTx, isDebtWallet, monthlyInstalments, dsr } from './plan.ts';
+import { budgetSummary, levelOf, newAlerts, suggestBudgets } from './budget.ts';
 import { dueDates, nextAfter, occurrenceTx, ruleFromTx, scheduleLabel } from './recurring.ts';
 import { initLock, lockNow, setupPin, verifyPin, pinOn, enableBio, bioAvailable } from './lock.ts';
 import { initStories, openStories, storiesReady } from './stories.ts';
@@ -162,6 +163,7 @@ function vHome() {
     <button data-a="tab" data-t="1"><span class="qi" style="--c:#F0A010"><i data-lucide="chart-pie"></i></span>Rekap</button>
   </div>
   ${dueCardHTML()}
+  ${budgetMiniHTML()}
   ${storiesReady() ? `<button class="story-card st" style="--i:4" data-a="stories"><span class="sc-ic"><i data-lucide="clapperboard"></i></span><span><b>Rekap kilat minggu ini</b><small>6 kartu cerita · ketuk untuk memutar</small></span><span class="play"><i data-lucide="play"></i></span></button>` : ''}
   <div class="sec-h st" style="--i:4"><h3>7 hari terakhir</h3><small class="num">${money(wsum)}</small></div>
   <div class="card st" style="--i:4">
@@ -254,6 +256,7 @@ function vRekap(swap) {
   </div>
   <div class="card"><h4>Ke mana uang pergi? <small>${parts.length ? 'ketuk warna' : ''}</small></h4>
     ${parts.length ? `<div class="donut-wrap">${donut(parts, st.out)}<div class="legend">${parts.map((p) => `<button data-a="drill" data-cat="${p.k}" style="--c:${CATS[p.k].c}"><i></i><span>${CATS[p.k].n}</span><em>${pct(p.v / st.out)}</em></button>`).join('')}</div></div>` : '<div class="empty">Belum ada pengeluaran di bulan ini.</div>'}</div>
+  ${budgetCardHTML(mk, st)}
   <div class="card chart"><h4>Pengeluaran harian <small>${st.n} transaksi</small></h4><div class="chart-note" id="daynote">${note}</div>${dailyChart(mk, st)}</div>
   <div class="card chart"><h4>Tren bulanan <span class="leg-inline"><span style="--c:var(--in)"><i></i>Masuk</span><span style="--c:var(--out)"><i></i>Keluar</span></span></h4>${trendChart(months.slice(Math.max(0, idx - 3), idx + 1))}</div>
   <div class="card"><h4>Catatan perencana keuangan</h4>${insights(mk, st, months)}</div>
@@ -400,7 +403,7 @@ function vLainnya() {
   <div class="card"><h4>Data</h4>
     <button class="set-row" data-a="excel"><span class="ic" style="--c:#1E9E4F"><i data-lucide="file-down"></i></span><div class="t"><b>Ekspor ke Excel</b><small>Ringkasan, transaksi, dan per kategori (.xlsx)</small></div><i data-lucide="chevron-right"></i></button>
     <button class="set-row danger-row" data-a="wipe"><span class="ic" style="--c:#F43F5E"><i data-lucide="trash-2"></i></span><div class="t"><b>Hapus semua data</b><small>Transaksi, dompet, dan pengaturan di perangkat ini</small></div></button></div>
-  <div class="card about"><h4>Tentang</h4>Do it Dip 0.4 · Tahap 4. ${TX().length.toLocaleString('id-ID')} transaksi tersimpan. Berikutnya: anggaran per kategori dan buku Freelance & Usaha.</div></div>`;
+  <div class="card about"><h4>Tentang</h4>Do it Dip 0.5 · Tahap 5. ${TX().length.toLocaleString('id-ID')} transaksi tersimpan. Berikutnya: buku Freelance & Usaha, lalu buku keluarga.</div></div>`;
 }
 function placePill(seg) { if (!seg) return; const on = seg.querySelector('button.on'), pill = seg.querySelector('.pill'); if (!on || !pill) return; pill.style.width = on.offsetWidth + 'px'; pill.style.transform = `translateX(${on.offsetLeft - 4}px)`; }
 
@@ -416,7 +419,7 @@ function renderPanel(i, arg) {
   if (i === 2) { layoutStack(); initCards(); bindStack(); }
   if (i === 3) { placePill($('themeSeg')); placePill($('lockSeg')); }
 }
-function renderAll() { for (let i = 0; i < 4; i++) renderPanel(i); icons(); }
+function renderAll() { checkBudgets(); for (let i = 0; i < 4; i++) renderPanel(i); icons(); }
 function refresh() { S.dispTotal = totalBalance(); renderAll(); setOdo($('odo'), S.dispTotal, true); if (S.drill) rerenderDrill(); renderDesk(); }
 function onPhoneShown() { tabCenters = []; refresh(); requestAnimationFrame(() => { measureTabs(); moveInd(S.pos); placePill($('themeSeg')); }); }
 function playPanel(i) {
@@ -817,6 +820,7 @@ function toast(msg, undo) {
   const el = $('toast'); el.innerHTML = `<i data-lucide="sparkles"></i><span>${esc(msg)}</span>${undo ? '<button class="undo" id="undoBtn">Urungkan</button>' : ''}`; icons();
   el.classList.remove('show'); void el.offsetWidth; el.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => el.classList.remove('show'), undo ? 4500 : 2400);
   if (undo) $('undoBtn').onclick = () => { el.classList.remove('show'); undo(); };
+  if (S.bNote) { clearTimeout(S.bNoteT); S.bNoteT = setTimeout(flushBudgetNote, undo ? 4700 : 2600); }
 }
 
 /* ================= sheets ================= */
@@ -1182,6 +1186,60 @@ function sDebt(id) {
     <div class="btn-row" style="margin-top:12px"><button class="btn2" data-a="debtEdit" data-id="${d.id}"><i data-lucide="pencil"></i>Ubah</button></div>`);
 }
 
+/* ================= budgets ================= */
+const BUDGETS = () => store.data.settings.budgets || {};
+const hasBudgets = () => Object.values(BUDGETS()).some((v) => v > 0);
+/** Average spending per category over the last 3 full months (only months with data). */
+function lastMonthsByCat() {
+  const mk = T().slice(0, 7);
+  return [1, 2, 3].map((i) => stats(TX(), addMonths(mk, -i)).byCat).filter((m) => Object.keys(m).length);
+}
+function bdBar(l) { return `<span class="bd-bar lv${l.level}"><i style="width:${Math.min(100, l.used * 100).toFixed(1)}%"></i>${l.pace > 0 && l.pace < 1 ? `<em style="left:${(l.pace * 100).toFixed(1)}%"></em>` : ''}</span>`; }
+function budgetCardHTML(mk, st) {
+  if (!hasBudgets()) return `<div class="card"><h4>Anggaran</h4><p class="about" style="margin:0 0 10px">Tetapkan batas pengeluaran per kategori setiap bulan. Saya ingatkan saat sudah terpakai 80% dan saat terlewati.</p><button class="btn2 wide" data-a="budget"><i data-lucide="target"></i>Atur anggaran</button></div>`;
+  const s = budgetSummary(BUDGETS(), st.byCat, mk, T()), cur = isCurMonth(mk), tot = { level: levelOf(s.spent, s.limit), used: s.used, pace: s.pace };
+  return `<div class="card"><h4>Anggaran <button class="h-link" data-a="budget">Atur</button></h4>
+    <div class="bd-total"><div><small>${s.left >= 0 ? (cur ? 'Sisa bulan ini' : 'Tersisa') : 'Lewat anggaran'}</small><b class="${s.left < 0 ? 'neg' : ''}">${money(Math.abs(s.left))}</b></div>
+      <small>${money(s.spent)} dari ${money(s.limit)}${cur && s.perDay ? `<br>±${short(s.perDay)}/hari sampai akhir bulan` : ''}</small></div>
+    ${bdBar(tot)}
+    <div class="bd-list">${s.lines.map((l) => { const c = CATS[l.cat]; return `<button class="bd-row" data-a="drill" data-cat="${l.cat}"><span class="ic" style="--c:${c.c}"><i data-lucide="${c.i}"></i></span><span class="bd-main"><span class="bd-top"><b>${c.n}</b><span class="${l.level === 2 ? 'neg' : ''}">${l.left >= 0 ? `sisa ${short(l.left)}` : `lewat ${short(-l.left)}`}</span></span>${bdBar(l)}<small>${short(l.spent)} dari ${short(l.limit)}${cur && l.ahead && l.level < 2 ? ' · lebih cepat dari jadwal' : ''}</small></span></button>`; }).join('')}</div>
+    ${cur ? '<p class="form-note" style="margin:10px 0 0">Garis tipis di batang = posisi hari ini dalam bulan. Batang yang melewatinya berarti belanja lebih cepat dari jadwal.</p>' : ''}</div>`;
+}
+function budgetMiniHTML() {
+  if (!hasBudgets()) return '';
+  const mk = T().slice(0, 7), s = budgetSummary(BUDGETS(), stats(TX(), mk).byCat, mk, T());
+  const hot = s.lines.filter((l) => l.level > 0), tot = { level: levelOf(s.spent, s.limit), used: s.used, pace: s.pace };
+  return `<button class="card bd-mini st" style="--i:3" data-a="tab" data-t="1"><span class="bd-top"><small>Anggaran ${BLN[Number(mk.slice(5)) - 1]}</small><small>${hot.length ? `${hot.length} kategori ${hot.some((l) => l.level === 2) ? 'perlu perhatian' : 'hampir habis'}` : 'semua aman'}</small></span>
+    <span class="bd-top"><b class="${s.left < 0 ? 'neg' : ''}">${s.left >= 0 ? 'Sisa ' : 'Lewat '}${money(Math.abs(s.left))}</b>${s.perDay ? `<small>±${short(s.perDay)}/hari</small>` : ''}</span>${bdBar(tot)}</button>`;
+}
+let BF = null;
+function bfTotal() {
+  const tot = Object.values(BF).reduce((s, v) => s + (v || 0), 0), months = lastMonthsByCat().length, mk = T().slice(0, 7);
+  const inc = [1, 2, 3].map((i) => stats(TX(), addMonths(mk, -i)).inc).filter((v) => v > 0), avgInc = inc.length ? inc.reduce((a, b) => a + b, 0) / inc.length : 0;
+  return `Total <b>${rp(tot)}</b>/bulan${avgInc ? ` · ${pct(tot / avgInc)} dari pemasukan rata-rata (${short(avgInc)})` : ''}${avgInc && tot > avgInc ? ' — melebihi pemasukan' : ''}${!months ? '' : ''}`;
+}
+function sBudget() {
+  BF = { ...BUDGETS() };
+  const hist = lastMonthsByCat(), avg = suggestBudgets(hist);
+  openSheet('Anggaran bulanan', `<p class="confirm-text" style="margin-bottom:10px">Batas pengeluaran per kategori setiap bulan. Kosongkan kategori yang tidak ingin dibatasi.</p>
+    ${hist.length ? `<button class="btn2 wide" data-a="bfSuggest" style="margin:0 0 12px"><i data-lucide="sparkles"></i>Isi dari rata-rata ${hist.length} bulan terakhir</button>` : ''}
+    <div class="bf-list">${OUT_CATS.map((k) => `<label class="bf-row"><span class="ic" style="--c:${CATS[k].c}"><i data-lucide="${CATS[k].i}"></i></span><span class="tx-main"><b>${CATS[k].n}</b><small>${avg[k] ? `rata-rata ±${short(avg[k])}` : 'belum ada riwayat'}</small></span><input class="field bf-in" id="bf-${k}" inputmode="numeric" placeholder="—" value="${BF[k] ? fmtN(BF[k]) : ''}" autocomplete="off"></label>`).join('')}</div>
+    <p class="form-note" id="bfTotal">${bfTotal()}</p>
+    <button class="primary" data-a="bfSave"><i data-lucide="check"></i>Simpan anggaran</button>`);
+}
+/** Tell the user once when a category passes 80% or its limit this month. */
+function checkBudgets(announce = true) {
+  const mk = T().slice(0, 7), s = budgetSummary(BUDGETS(), stats(TX(), mk).byCat, mk, T());
+  const fresh = !S.bSeen || S.bSeenMk !== mk;
+  const al = announce && !fresh ? newAlerts(S.bSeen, s.lines) : [];
+  S.bSeen = Object.fromEntries(s.lines.map((l) => [l.cat, l.level])); S.bSeenMk = mk;
+  if (al.length) { const l = al[0], n = CATS[l.cat].n; S.bNote = l.level === 2 ? `${n} lewat anggaran ${rp(-l.left)}` : `${n} sudah ${pct(l.used)} dari anggaran · sisa ${rp(l.left)}`; clearTimeout(S.bNoteT); S.bNoteT = setTimeout(flushBudgetNote, 3200); }
+}
+/** The budget warning waits for the save confirmation toast instead of being covered by it. */
+function flushBudgetNote() {
+  if (!S.bNote) return; const m = S.bNote; S.bNote = null; toast(m);
+}
+
 /* ================= Excel export ================= */
 let EX = { range: 'month' };
 function exPeriod(range) {
@@ -1302,7 +1360,7 @@ async function afterCloudLogin(email) {
 }
 
 function afterDataReset() {
-  S.mk = null; S.drill = null; S.wsel = null; S.wall = false; S.nl = ''; S.nlOv = {}; S.m = null; closeDrill(true); closeComposer();
+  S.bSeen = null; S.mk = null; S.drill = null; S.wsel = null; S.wall = false; S.nl = ''; S.nlOv = {}; S.m = null; closeDrill(true); closeComposer();
   applyTheme(store.data.settings.theme);
   syncDesk();
   if (!store.data.settings.onboarded) { showOnboarding(); return; }
@@ -1369,6 +1427,7 @@ function bindEvents() {
     if (id === 'obName') S.ob.name = e.target.value;
     if (id === 'stAmt') { const v = digitsOnly(e.target.value); e.target.value = v ? fmtN(v) : ''; S.struk.form.amount = v; const b = document.querySelector('[data-a="saveStruk"]'); if (b) b.disabled = !v; }
     if (id === 'stNote') S.struk.form.note = e.target.value;
+    if (id.startsWith('bf-')) { const v = digitsOnly(e.target.value); e.target.value = v ? fmtN(v) : ''; BF[id.slice(3)] = Number(v) || 0; $('bfTotal').innerHTML = bfTotal(); }
     if (id === 'rfAmt' || id === 'dueAmt') { const v = digitsOnly(e.target.value); e.target.value = v ? fmtN(v) : ''; if (id === 'rfAmt') RF.r.amount = Number(v) || 0; }
     if (id === 'stDate' && e.target.value) S.struk.form.date = e.target.value > T() ? T() : e.target.value;
     if (id.startsWith('obw-') || id === 'wfInit') { const v = digitsOnly(e.target.value); e.target.value = v ? fmtN(v) : ''; if (id.startsWith('obw-')) S.ob.wallets[Number(id.slice(4))].init = String(v); }
@@ -1654,6 +1713,9 @@ function onClick(e) {
       else { sDebt(dd.id); toast(`${rp(amt)} dicatat · sisa ${rp(left - amt)}`); }
       break;
     }
+    case 'budget': sBudget(); break;
+    case 'bfSuggest': { const avg = suggestBudgets(lastMonthsByCat()); Object.assign(BF, avg); OUT_CATS.forEach((k) => { const f = $('bf-' + k); if (f) f.value = BF[k] ? fmtN(BF[k]) : ''; }); $('bfTotal').innerHTML = bfTotal(); toast('Diisi dari rata-rata. Sesuaikan bila perlu.'); break; }
+    case 'bfSave': { const clean = Object.fromEntries(Object.entries(BF).filter(([, v]) => v > 0)); store.setSetting('budgets', clean); S.bSeen = null; closeSheet(); refresh(); toast(Object.keys(clean).length ? `Anggaran ${Object.keys(clean).length} kategori disimpan` : 'Anggaran dikosongkan'); break; }
     case 'excel': sExport(); break;
     case 'exRange': EX.range = d.v; $('exBody').innerHTML = exInner(); icons(); placePill($('exRange')); break;
     case 'exGo': el.disabled = true; el.innerHTML = '<i data-lucide="hourglass"></i>Membuat file…'; icons(); exportExcel(exPeriod(EX.range)); break;
@@ -1697,6 +1759,7 @@ export async function start() {
   if (store.data.settings.onboarded && cloudOn()) setTimeout(() => syncNow(false), 800);
   else if (store.data.settings.onboarded) setTimeout(runRecurring, 600);
   store.requestPersist().then((ok) => { S.persisted = ok; });
+  checkBudgets(false);
   bioAvailable().then((ok) => { S.bioAvail = ok; if (ok && PANELS[3]) { renderPanel(3); icons(); } });
   renderAll(); setPos(0); PANELS[0].classList.add('play');
   requestAnimationFrame(() => { measureTabs(); moveInd(0); });

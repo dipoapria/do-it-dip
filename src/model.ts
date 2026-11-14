@@ -53,9 +53,11 @@ export interface Settings {
   cloudEmail: string;
   cloudLastSync: string;
   cloudDirty: boolean;
+  /** Monthly spending limit per expense category (rupiah); missing or 0 = no limit. */
+  budgets: Record<string, number>;
 }
 
-export const DEFAULT_SETTINGS: Settings = { name: '', onboarded: false, theme: 'system', lpLearned: false, pinHash: '', pinSalt: '', pinLen: 4, bioId: '', lockAfter: 60, cloudEmail: '', cloudLastSync: '', cloudDirty: false };
+export const DEFAULT_SETTINGS: Settings = { name: '', onboarded: false, theme: 'system', lpLearned: false, pinHash: '', pinSalt: '', pinLen: 4, bioId: '', lockAfter: 60, cloudEmail: '', cloudLastSync: '', cloudDirty: false, budgets: {} };
 
 export interface Category { n: string; c: string; i: string; subs: string[]; inc?: boolean }
 

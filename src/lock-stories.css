@@ -145,3 +145,34 @@ body.veil::after{content:"";position:fixed;inset:0;z-index:1999;background:var(-
 .nw-rows b.in{color:var(--in)}.nw-rows b.out{color:var(--out)}
 .btn2.go{color:#fff;background:linear-gradient(140deg,var(--brand),var(--brand-2))}
 #planSec .sec-h:first-child{margin-top:26px}
+
+/* budgets */
+.h-link{font-size:12.5px;font-weight:800;color:var(--brand);padding:2px 4px}
+.bd-total{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;margin-bottom:8px}
+.bd-total small{color:var(--ink-3);font-size:11.5px;font-weight:600;line-height:1.45;text-align:right}
+.bd-total div small{display:block;text-align:left}
+.bd-total b{font:800 24px var(--f-display);font-variant-numeric:tabular-nums}
+.bd-total b.neg,.bd-mini b.neg,.bd-top .neg{color:var(--out)}
+.bd-bar{position:relative;display:block;height:8px;border-radius:8px;background:var(--surface-2);margin:6px 0 4px}
+.bd-bar i{position:absolute;left:0;top:0;bottom:0;border-radius:8px;background:var(--brand);transform-origin:left;animation:growx .9s var(--out-expo) both}
+.bd-bar.lv1 i{background:#F0A010}
+.bd-bar.lv2 i{background:var(--out);width:100%!important}
+.bd-bar em{position:absolute;top:-3px;bottom:-3px;width:2px;margin-left:-1px;border-radius:2px;background:var(--ink-2);opacity:.55}
+.bd-list{display:flex;flex-direction:column;margin-top:10px}
+.bd-row{display:flex;align-items:center;gap:12px;width:100%;text-align:left;padding:10px 0;border-top:1px solid var(--line)}
+.bd-row .ic{width:36px;height:36px;border-radius:12px}
+.bd-row .ic svg.lucide{width:18px;height:18px}
+.bd-main{flex:1;min-width:0}
+.bd-top{display:flex;align-items:baseline;justify-content:space-between;gap:8px;font-size:12.5px}
+.bd-top b{font-size:13.5px}
+.bd-top span{color:var(--ink-2);font-weight:700;font-variant-numeric:tabular-nums}
+.bd-main small{font-size:11.5px;color:var(--ink-3)}
+.bd-mini{display:block;width:100%;text-align:left;margin-top:12px}
+.bd-mini .bd-top small{color:var(--ink-3);font-weight:600;font-size:11.5px}
+.bd-mini b{font:800 18px var(--f-display);font-variant-numeric:tabular-nums}
+.bf-list{display:flex;flex-direction:column;gap:2px;margin-bottom:6px}
+.bf-row{display:flex;align-items:center;gap:10px;padding:6px 0}
+.bf-row .ic{width:36px;height:36px;border-radius:12px}
+.bf-row .ic svg.lucide{width:18px;height:18px}
+.bf-row .tx-main b{font-size:13px}
+.bf-in{width:128px;flex:none;margin:0!important;text-align:right;padding:10px 12px!important}
