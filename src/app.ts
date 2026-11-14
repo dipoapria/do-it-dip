@@ -17,9 +17,8 @@ import { dueDates, nextAfter, occurrenceTx, ruleFromTx, scheduleLabel } from './
 import { initLock, lockNow, setupPin, verifyPin, pinOn, enableBio, bioAvailable } from './lock.ts';
 import { initStories, openStories, storiesReady } from './stories.ts';
 import * as cloud from './cloud.ts';
-import { recognize, preprocess } from './ocr.ts';
+import { scanWithTesseract } from './scan.ts';
 import { extract, NeedPassword } from './filetext.ts';
-import { parseReceipt } from './receipt.ts';
 import { guessRow, linesToStatement, rowsToStatement } from './statement.ts';
 import { KW } from './model.ts';
 import { initDesk, render as renderDesk, sync as syncDesk } from './desk.ts';
@@ -622,8 +621,16 @@ function afterModeRender() { document.querySelectorAll('#modebody .seg').forEach
 const kwHit = (text) => { const t = ' ' + text.toLowerCase() + ' '; for (const w of t.match(/[a-z]+/g) || []) if (store.data.learned[w]) return store.data.learned[w]; for (const [re, c, s] of KW) if (re.test(t)) return { cat: c, sub: s }; return null; };
 /** Known chain decides first (Indomaret → Belanja); then the shop name; a long item list is a shopping trip; then the item names. */
 const receiptGuess = (res) => res.storeCat || kwHit(res.merchant) || (res.items.length >= 3 ? { cat: 'belanja', sub: 'Kebutuhan harian' } : kwHit(res.items.map((i) => i.name).join(' '))) || { cat: 'belanja', sub: 'Kebutuhan harian' };
-/** One item → its name ("VIT AIR MINERAL 19 L"); several → the shop. */
-const receiptNote = (res) => (res.items.length === 1 ? res.items[0].name : res.merchant || 'Belanja');
+/** Receipt names are printed in capitals: "AQUA BTL 600ML" → "Aqua Btl 600ml". */
+const niceName = (n) => (n === n.toUpperCase() ? n.toLowerCase().replace(/(^|\s)(\p{L})/gu, (m, a, b) => a + b.toUpperCase()) : n).trim();
+/** Note from the products: "Aqua Btl 600ml", "Aqua Btl 600ml, Roti Tawar", "Aqua Btl 600ml, Roti Tawar +3". */
+function receiptNote(items) {
+  const names = items.map((it) => niceName(it.name)).filter(Boolean);
+  if (!names.length) return 'Belanja';
+  const head = names.slice(0, 2).join(', ');
+  return (names.length > 2 ? `${head} +${names.length - 2}` : head).slice(0, 60);
+}
+const stSum = (f) => f.items.reduce((s, it) => s + (Number(it.amount) || 0), 0);
 /** Wallet from how the receipt says it was paid (TUNAI → cash, GOPAY → GoPay, DEBIT → main bank). */
 function receiptWallet(pay) {
   const d = defaults();
@@ -636,7 +643,7 @@ const PAY_LABEL = { cash: 'tunai', card: 'kartu/debit', gopay: 'GoPay', ovo: 'OV
 function mStruk() {
   const s = S.struk;
   if (s.phase === 'idle') return `<div class="drop"><span class="ic" style="--c:#E04BB5"><i data-lucide="receipt"></i></span><b>Foto struk belanja</b>
-    <small>Total, nama toko, dan tanggal dibaca otomatis langsung di HP ini. Foto lurus, terang, dan seluruh struk masuk bingkai.</small>
+    <small>Produk, harga, dan total dibaca otomatis langsung di HP ini. Foto dari atas, terang, seluruh struk masuk bingkai, dan jari tidak menutupi tulisan.</small>
     <div class="btn-row" style="width:100%"><label class="btn2 primaryish" for="strukCam"><i data-lucide="camera"></i>Foto struk</label><label class="btn2" for="strukPick"><i data-lucide="image-plus"></i>Dari galeri</label></div>
     <input type="file" id="strukCam" accept="image/*" capture="environment" hidden><input type="file" id="strukPick" accept="image/*" hidden>
     <small class="muted">Pemakaian pertama mengunduh pembaca teks ±5 MB (perlu internet). Setelah itu jauh lebih cepat.</small></div>`;
@@ -646,28 +653,43 @@ function mStruk() {
     <div class="btn-row"><button class="btn2" data-a="stRetry"><i data-lucide="rotate-ccw"></i>Foto ulang</button><button class="btn2" data-a="mode" data-mode="manual"><i data-lucide="keyboard"></i>Isi manual</button></div>`;
   const f = s.form, r = s.res, c = CATS[f.cat];
   const wchips = WL().map((w) => `<button class="chip ${f.wallet === w.id ? 'on' : ''}" data-a="stset" data-k="wallet" data-v="${w.id}"><i data-lucide="${WALLET_ICON[w.group]}"></i>${esc(w.name)}</button>`).join('');
-  return `<div class="st-done"><div class="st-img small"><img src="${s.img}" alt="Foto struk"></div><div><span class="type out">Pengeluaran</span><p class="muted" style="margin:6px 0 0">${r.total ? 'Periksa hasilnya, lalu simpan.' : '<b>Total tidak terbaca.</b> Isi nominalnya di bawah.'}</p></div></div>
-  <span class="lab">Total</span><input class="field amt-field" id="stAmt" inputmode="numeric" value="${f.amount ? fmtN(f.amount) : ''}" placeholder="Rp0" autocomplete="off">
+  const banner = r.confidence === 'high'
+    ? `<div class="st-check good"><i data-lucide="check"></i><span><b>Hitungannya cocok.</b> Jumlah harga produk sama dengan total struk.</span></div>`
+    : r.confidence === 'medium'
+      ? `<div class="st-check warn"><i data-lucide="info"></i><span><b>Total terbaca, tapi ada produk yang kurang jelas.</b> Periksa daftar di bawah, ubah atau tambahkan yang terlewat.</span></div>`
+      : `<div class="st-check bad"><i data-lucide="triangle-alert"></i><span><b>Struk kurang jelas terbaca.</b> Periksa angkanya, atau foto ulang lebih dekat, dari atas, di tempat terang, tanpa jari menutupi tulisan.</span></div>`;
+  return `<div class="st-done"><div class="st-img small"><img src="${s.img}" alt="Foto struk"></div><div><span class="type out">Pengeluaran</span><p class="muted" style="margin:6px 0 0">${f.items.length} produk terbaca</p></div></div>
+  ${banner}
+  <span class="lab">Produk</span>
+  <div class="st-items">${f.items.map((it, i) => `<div class="st-item"><input class="field" id="sti-n-${i}" value="${esc(it.name)}" placeholder="Nama produk" autocomplete="off" aria-label="Nama produk ${i + 1}"><input class="field" id="sti-a-${i}" inputmode="numeric" value="${it.amount ? fmtN(it.amount) : ''}" placeholder="Rp0" autocomplete="off" aria-label="Harga produk ${i + 1}"><button class="icon-btn" data-a="stiDel" data-i="${i}" aria-label="Hapus produk ${i + 1}"><i data-lucide="x"></i></button></div>`).join('')}
+    <button class="btn2" style="width:100%" data-a="stiAdd"><i data-lucide="plus"></i>Tambah produk yang terlewat</button></div>
+  <div class="st-sum" id="stSum">${stSumHTML(f)}</div>
+  <span class="lab">Total dibayar</span><input class="field amt-field" id="stAmt" inputmode="numeric" value="${f.amount ? fmtN(f.amount) : ''}" placeholder="Rp0" autocomplete="off">
   <span class="lab">Catatan</span><input class="field" id="stNote" maxlength="60" value="${esc(f.note)}" autocomplete="off">
   <span class="lab">Tanggal${r.date ? '' : ' <em class="from-receipt warn">· tidak terbaca, diisi hari ini</em>'}</span><input class="field" type="date" id="stDate" value="${f.date}" max="${T()}">
   <span class="lab">Kategori</span><div class="hscroll">${OUTC().map((k) => `<button class="chip cat ${f.cat === k ? 'on' : ''}" style="--c:${CATS[k].c}" data-a="stset" data-k="cat" data-v="${k}"><i data-lucide="${CATS[k].i}"></i>${CATS[k].n}</button>`).join('')}</div>
   <div class="hscroll">${c.subs.map((x) => `<button class="chip ${f.sub === x ? 'on' : ''}" data-a="stset" data-k="sub" data-v="${esc(x)}">${esc(x)}</button>`).join('')}</div>
   <span class="lab">Dibayar pakai${r.pay ? ` <em class="from-receipt">· struk: ${PAY_LABEL[r.pay] || r.pay}</em>` : ''}</span><div class="hscroll">${wchips}</div>
-  ${r.items.length ? `<details class="st-more"><summary>${r.items.length} barang terbaca</summary>${r.items.map((it) => `<div class="kv"><span>${esc(it.name)}</span><b>${rp(it.amount)}</b></div>`).join('')}</details>` : ''}
-  <details class="st-more"><summary>Teks yang terbaca</summary><pre>${esc(r.lines.join('\n') || '(kosong)')}</pre></details>
+  <details class="st-more"><summary>Teks mentah dari foto</summary><pre>${esc(r.lines.join('\n') || '(kosong)')}</pre></details>
   <button class="primary" data-a="saveStruk" ${f.amount ? '' : 'disabled'}><i data-lucide="check"></i>Simpan dari struk</button>
   <button class="btn2" style="width:100%;margin-top:8px;background:none" data-a="stRetry"><i data-lucide="rotate-ccw"></i>Foto struk lain</button>`;
+}
+/** Products vs total: the difference is usually tax, service or a discount, or a product that was missed. */
+function stSumHTML(f) {
+  const sum = stSum(f), diff = f.amount - sum;
+  if (!f.items.length) return '';
+  return `<span>Jumlah harga produk</span><b>${rp(sum)}</b>${f.amount && diff ? `<em class="${Math.abs(diff) > f.amount * 0.15 ? 'warn' : ''}">${diff > 0 ? `kurang ${rp(diff)} dari total: pajak/servis, atau produk yang belum tercatat` : `lebih ${rp(-diff)} dari total: ada diskon, atau harga yang salah baca`}</em>` : f.amount ? '<em class="ok">sama dengan total</em>' : ''}`;
 }
 async function startStruk(file) {
   S.struk = { phase: 'reading', img: URL.createObjectURL(file), progress: 0, label: 'Menyiapkan foto…' }; rerenderMode();
   const mine = S.struk;
   try {
-    const img = await preprocess(file);
-    const text = await recognize(img, (p, l) => { mine.progress = p; mine.label = l; const b = $('stProg'), lb = $('stLbl'); if (b) b.style.width = Math.round(p * 100) + '%'; if (lb) lb.textContent = l; });
+    const out = await scanWithTesseract(file, T(), (p, l) => { mine.progress = p; mine.label = l; const b = $('stProg'), lb = $('stLbl'); if (b) b.style.width = Math.round(p * 100) + '%'; if (lb) lb.textContent = l; });
     if (S.struk !== mine) return;
-    const res = parseReceipt(text, T()), g = receiptGuess(res);
+    const res = out.result, g = receiptGuess(res);
     if (!res.lines.length) throw new Error('empty');
-    S.struk = { ...mine, phase: 'done', res, form: { amount: res.total || 0, note: receiptNote(res), date: res.date || T(), cat: g.cat, sub: g.sub, wallet: receiptWallet(res.pay) } };
+    const items = res.items.map((it) => ({ name: niceName(it.name), amount: it.amount, qty: it.qty }));
+    S.struk = { ...mine, phase: 'done', res, form: { amount: res.total || stSum({ items }) || 0, items, note: receiptNote(items), noteEdited: false, date: res.date || T(), cat: g.cat, sub: g.sub, wallet: receiptWallet(res.pay) } };
   } catch (e) {
     if (S.struk !== mine) return;
     S.struk = { ...mine, phase: 'error', err: !navigator.onLine ? 'Pemakaian pertama butuh internet untuk mengunduh pembaca teks. Sambungkan internet lalu coba lagi.' : 'Teksnya tidak terbaca. Coba foto lebih dekat, lurus, dan di tempat terang.' };
@@ -864,7 +886,7 @@ function sTx(id) {
     <div class="kv" style="border-top:0"><span>Kategori</span><b>${t.type === 'tf' ? (t.debt ? c.n : 'Transfer') : `${c.n} · ${esc(t.sub)}`}</b></div>
     <div class="kv"><span>${t.type === 'tf' ? 'Dari → Ke' : 'Dompet'}</span><b>${t.type === 'tf' ? `${esc(w.name)} → ${esc(W(t.to).name)}` : esc(w.name)}</b></div>
     <div class="kv"><span>Tanggal</span><b>${longDate(t.date)}</b></div>
-    <div class="kv"><span>Buku</span><b>${(BOOKS[t.book] || BOOKS.pribadi).n}</b></div>${rule ? `<div class="kv"><span>Berulang</span><b>${scheduleLabel(rule)} · ${rule.auto ? 'otomatis' : 'tanya dulu'}</b></div>` : ''}</div>
+    <div class="kv"><span>Buku</span><b>${(BOOKS[t.book] || BOOKS.pribadi).n}</b></div>${t.items?.length ? `<div class="kv tx-items"><span>Produk</span><div>${t.items.map((it) => `<div><span>${esc(it.name)}${it.qty > 1 ? ` ×${it.qty}` : ''}</span><b>${rp(it.amount)}</b></div>`).join('')}</div></div>` : ''}${rule ? `<div class="kv"><span>Berulang</span><b>${scheduleLabel(rule)} · ${rule.auto ? 'otomatis' : 'tanya dulu'}</b></div>` : ''}</div>
   ${t.debt ? `<button class="btn2 wide" data-a="debt" data-id="${t.debt}"><i data-lucide="hand-coins"></i>Buka catatan utang & piutang</button>` : txButtons(t, rule)}
   ${t.debtInit ? '' : `<button class="danger" data-a="del" data-id="${t.id}">Hapus transaksi</button>`}`);
 }
@@ -1464,8 +1486,15 @@ function bindEvents() {
     if (id === 'mnote') S.m.note = e.target.value;
     if (id === 'mdate' && e.target.value) { S.m.date = e.target.value > T() ? T() : e.target.value; const sc = $('cobody').scrollTop; rerenderMode(); $('cobody').scrollTop = sc; }
     if (id === 'obName') S.ob.name = e.target.value;
-    if (id === 'stAmt') { const v = digitsOnly(e.target.value); e.target.value = v ? fmtN(v) : ''; S.struk.form.amount = v; const b = document.querySelector('[data-a="saveStruk"]'); if (b) b.disabled = !v; }
-    if (id === 'stNote') S.struk.form.note = e.target.value;
+    if (id === 'stAmt') { const v = digitsOnly(e.target.value); e.target.value = v ? fmtN(v) : ''; S.struk.form.amount = Number(v) || 0; const b = document.querySelector('[data-a="saveStruk"]'); if (b) b.disabled = !v; const sm = $('stSum'); if (sm) sm.innerHTML = stSumHTML(S.struk.form); }
+    if (id === 'stNote') { S.struk.form.note = e.target.value; S.struk.form.noteEdited = true; }
+    if (id.startsWith('sti-')) {
+      const f = S.struk.form, i = Number(id.slice(6)), it = f.items[i]; if (!it) return;
+      if (id[4] === 'n') it.name = e.target.value;
+      else { const v = digitsOnly(e.target.value); e.target.value = v ? fmtN(v) : ''; it.amount = Number(v) || 0; }
+      if (!f.noteEdited) { f.note = receiptNote(f.items.filter((x) => x.name.trim())); const n = $('stNote'); if (n) n.value = f.note; }
+      const sm = $('stSum'); if (sm) sm.innerHTML = stSumHTML(f);
+    }
     if (id.startsWith('bf-')) { const v = digitsOnly(e.target.value); e.target.value = v ? fmtN(v) : ''; BF[id.slice(3)] = Number(v) || 0; $('bfTotal').innerHTML = bfTotal(); }
     if (id === 'rfAmt' || id === 'dueAmt') { const v = digitsOnly(e.target.value); e.target.value = v ? fmtN(v) : ''; if (id === 'rfAmt') RF.r.amount = Number(v) || 0; }
     if (id === 'stDate' && e.target.value) S.struk.form.date = e.target.value > T() ? T() : e.target.value;
@@ -1662,9 +1691,12 @@ function onClick(e) {
     /* struk */
     case 'stRetry': S.struk = { phase: 'idle' }; rerenderMode(); break;
     case 'stset': { const f = S.struk.form; f[d.k] = d.v; if (d.k === 'cat') f.sub = CATS[d.v].subs[0]; const sc = $('cobody').scrollTop; rerenderMode(); $('cobody').scrollTop = sc; break; }
+    case 'stiDel': { const f = S.struk.form; f.items.splice(Number(d.i), 1); if (!f.noteEdited) f.note = receiptNote(f.items); const sc = $('cobody').scrollTop; rerenderMode(); $('cobody').scrollTop = sc; break; }
+    case 'stiAdd': { S.struk.form.items.push({ name: '', amount: 0 }); const sc = $('cobody').scrollTop; rerenderMode(); $('cobody').scrollTop = sc; later(60, () => $('sti-n-' + (S.struk.form.items.length - 1))?.focus()); break; }
     case 'saveStruk': {
       const f = S.struk.form; if (!f.amount) break;
-      const t = store.addTx({ date: f.date, type: 'out', cat: f.cat, sub: f.sub, amount: f.amount, wallet: f.wallet, to: null, note: (f.note || 'Belanja').trim() }); markFresh([t]);
+      const items = f.items.filter((it) => it.name.trim() && it.amount > 0).map((it) => ({ name: it.name.trim(), amount: it.amount, ...(it.qty > 1 ? { qty: it.qty } : {}) }));
+      const t = store.addTx({ date: f.date, type: 'out', cat: f.cat, sub: f.sub, amount: f.amount, wallet: f.wallet, to: null, note: (f.note || 'Belanja').trim(), ...(items.length ? { items } : {}) }); markFresh([t]);
       S.struk = { phase: 'idle' }; celebrate(rp(f.amount), 'out', el, `Struk tersimpan: ${rp(f.amount)}`); break;
     }
     /* impor */

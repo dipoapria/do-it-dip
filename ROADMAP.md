@@ -16,7 +16,7 @@ Perbarui file ini setiap ada fitur yang selesai, supaya tidak ada yang terlewat.
 | Ubah, duplikat, hapus + urungkan | tambahan Tahap 1 | ✅ |
 | Tekan lama transaksi untuk aksi cepat | mockup v2 | ✅ |
 | Tarik layar ke bawah untuk mencatat | mockup v2 | ✅ |
-| **Foto struk (OCR) → transaksi otomatis** | rencana awal, mockup v1 & v2 | ✅ dibaca di HP (Tesseract), hasil bisa dikoreksi sebelum disimpan |
+| **Foto struk (OCR) → transaksi otomatis** | rencana awal, mockup v1 & v2 | ✅ dibaca di HP (Tesseract): foto dirapikan (potong ke kertas, luruskan, ratakan bayangan, skala huruf), dibaca ulang sampai 4 cara; hanya produk + harga + total, dicek silang dengan total dan uang dibayar − kembalian; tanda cocok/kurang jelas; daftar produk bisa diedit dan ikut tersimpan. Uji 64 struk tiruan: total benar 100% (foto mudah), 94% (sedang), 81% (sulit) |
 | **Impor mutasi bank → dikategorikan otomatis** | rencana awal, mockup v1 & v2 | ✅ **Bank Permata:** PDF Mutasi Transaksi PermataMobile X (diuji dengan file asli) · 🟡 **Bank Sumsel Babel:** belum ada fitur unduh mutasi → impor dari screenshot riwayat transaksi (berfungsi untuk tata letak umum; perlu contoh screenshot asli BSB) · ✅ CSV/.xlsx umum, PDF bersandi, deteksi duplikat |
 | **Transaksi berulang (gaji, cicilan, langganan)** | rencana awal | ✅ dari detail transaksi → *Jadikan berulang*; tiap bulan (tanggal, termasuk akhir bulan) atau tiap minggu; *catat otomatis* atau *tanya dulu* (kartu Jatuh tempo di Beranda, nominal bisa diubah, bisa dilewati); daftar di Lainnya; ikut cadangan & sinkron, tidak dobel antar perangkat |
 
@@ -64,4 +64,5 @@ Perbarui file ini setiap ada fitur yang selesai, supaya tidak ada yang terlewat.
 - **Tabungan & utang:** src/plan.ts (hitungan murni + tes). Pinjaman tunai bergerak lewat dompet semu `debt:<id>` sebagai transfer, jadi saldo dompet benar tanpa mengubah pemasukan/pengeluaran.
 - **Anggaran:** src/budget.ts (hitungan murni + tes), disimpan di pengaturan `budgets`.
 - **Buku:** `Tx.book` dan `Wallet.book` (`pribadi` = dompet bersama). store.bookTxs()/bookWallets() menyaring tampilan; saldo dompet selalu dihitung dari semua buku. Buku terpilih disimpan per perangkat (`curBook`), daftar buku aktif ikut sinkron.
+- **Struk:** src/scan.ts (alur), src/imgproc.ts (olah gambar, dites), src/receipt.ts (baca produk/total, dites). Lab pengukur di tools/ocr-lab (jalankan `npx vite --port 5199`, buka /tools/ocr-lab/?n=2&pipe=new): struk tiruan 8 jenis × 4 tingkat kesulitan dengan kunci jawaban.
 - **Excel:** src/excel.ts membangun isi lembar (dites di Node) lalu ditulis dengan write-excel-file (dimuat hanya saat ekspor).

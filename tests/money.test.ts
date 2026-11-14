@@ -164,3 +164,103 @@ test('PDF-style lines: wrapped descriptions and sign from running balance', () =
   assert.equal(guessRow(rows[0], ctx).cat, 'gaji');
   assert.equal(guessRow(rows[1], ctx).cat, 'tagihan');
 });
+
+test('receipt: arithmetic outvotes a misread TOTAL; service/tax lines are not items', () => {
+  const kel = parseReceipt(`TOKO BERKAH JAYA
+31/10/2026 14:50 Ksr : FAJAR
+BAYGON AEROSOL 600ML
+1 x 388-900 38.900
+ABC SAMBAL ASLI 335
+1 x 12: 500 12.500
+TELUR AYAM NEGERI 10
+1 x 27.500 27.500
+Subtotal 78.900
+Total 718.900
+Bayar 100.000
+Kembali 21.100`, '2026-11-10');
+  assert.equal(kel.total, 78900);
+  assert.deepEqual(kel.items.map((i) => [i.name, i.amount]), [['BAYGON AEROSOL 600ML', 38900], ['ABC SAMBAL ASLI 335', 12500], ['TELUR AYAM NEGERI 10', 27500]]);
+  assert.equal(kel.confidence, 'high');
+  const kafe = parseReceipt(`KEDAI SENJA
+1 Kopi Susu Gula Aren 25.000
+2 Roti Bakar Coklat 44.000
+1 Air Mineral 6.000
+Subtotal 75.000
+Service 5% 3.750
+PB1 10% 7.875
+TOTAL 86.625
+QRIS 86.625`, '2026-11-10');
+  assert.deepEqual(kafe.items.map((i) => i.name), ['Kopi Susu Gula Aren', 'Roti Bakar Coklat', 'Air Mineral']);
+  assert.equal(kafe.items[1].qty, 2);
+  assert.equal(kafe.total, 86625);
+  assert.equal(kafe.confidence, 'high');
+});
+
+test('receipt: a reading that cannot be verified is never "high"', () => {
+  const r = parseReceipt('ALFA ee\nKeritikea ON VW 2006\nzz', '2026-11-10');
+  assert.notEqual(r.confidence, 'high');
+  const roti = parseReceipt(`BAKERY MANDIRI
+ROTI ABON SAPI 1 8 12.000 12.090
+BROWNIES PANGGANG 1 @ 55.000 55.000
+JUMLAH 67.090
+DIBAYAR 70.000
+KEMBALI 3.000`, '2026-11-10');
+  assert.equal(roti.items[0].amount, 12000);
+  assert.equal(roti.total, 67000);
+});
+
+test('receipt: item names that look like keywords (TOMAT ≈ TOTAL, BAYAM ≈ BAYAR) stay items', () => {
+  const r = parseReceipt(`SUPERINDO
+BAYAM HIJAU IKAT 6.500
+DISC -1.000
+TOMAT MERAH 12.500
+SUNLIGHT NIPIS 755
+MW 4x 15.500 62.000 P
+SUB TOTAL 81.000
+TOTAL DISKON -1.000
+TOTAL 80.000
+TUNAI 100.000
+KEMBALI 20.000`, '2026-11-10');
+  assert.deepEqual(r.items.map((i) => [i.name, i.amount]), [['BAYAM HIJAU IKAT', 6500], ['TOMAT MERAH', 12500], ['SUNLIGHT NIPIS 755', 62000]]);
+  assert.equal(r.total, 80000);
+  assert.equal(r.confidence, 'high');
+});
+
+test('receipt: zeros misread as 8/9 are repaired when the items then add up', () => {
+  const r = parseReceipt(`HYPERMART
+SOSIS SO NICE 360G
+2 X 31.500 63.080
+TOMAT MERAH 12.588
+YOGHURT CIMORY 250 12.968
+SUB TOTAL 88.400
+TOTAL 88.400
+DEBIT MANDIRI 88.400`, '2026-11-10');
+  assert.deepEqual(r.items.map((i) => i.amount), [63000, 12500, 12900]);
+  assert.equal(r.confidence, 'high');
+});
+
+test('receipt: confidence is not "high" when the total is unproven', () => {
+  const ap = parseReceipt(`APOTEK BUNDA
+TADINE SOL 15ML 2
+JTAL 37.000
+TUNAI 40.000
+KEMBALI 3.000`, '2026-11-10');
+  assert.equal(ap.total, 37000);
+  assert.equal(ap.items.length, 0);
+  assert.notEqual(ap.confidence, 'high');
+  const fuel = parseReceipt(`PERTAMINA
+Nama Produk : DEXLITE
+Harga/Liter : Rp. 13.250
+Volume : (L) 2,26
+Total Harga : Rp. 39.009
+CASH : Rp. 38.000`, '2026-11-10');
+  assert.equal(fuel.confidence, 'medium');
+  const fuelOk = parseReceipt(`PERTAMINA
+Nama Produk : PERTALITE
+Harga/Liter : Rp. 10.000
+Volume : (L) 10,25
+Total Harga : Rp. 102.500
+CASH : Rp. 105.000`, '2026-11-10');
+  assert.equal(fuelOk.confidence, 'high');
+  assert.equal(parseReceipt('TOKO\nTEH 5.000\nTOTAL 5.00€\nTUNAI 10.000\nKEMBALI 5.000', '2026-11-10').total, 5000);
+});

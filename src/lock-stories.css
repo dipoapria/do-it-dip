@@ -189,3 +189,24 @@ body.veil::after{content:"";position:fixed;inset:0;z-index:1999;background:var(-
 .wcard{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none;transition:transform .65s var(--spring),opacity .45s,scale .5s cubic-bezier(.25,.8,.3,1),box-shadow .5s ease;transition-delay:calc(var(--i)*30ms),calc(var(--i)*30ms),0s,0s}
 .wcard.armed{scale:1.015;box-shadow:0 22px 40px -18px rgba(0,0,0,.55);z-index:5}
 .wcard:focus:not(:focus-visible),.wcard.armed:focus{outline:none}
+
+/* receipt result: products, check against the total */
+.st-check{display:flex;gap:10px;align-items:flex-start;padding:11px 13px;border-radius:14px;font-size:12.5px;line-height:1.45;margin:0 0 14px}
+.st-check svg.lucide{width:18px;height:18px;flex:none;margin-top:1px}
+.st-check.good{background:color-mix(in srgb,var(--in) 13%,var(--surface));color:var(--in)}
+.st-check.warn{background:color-mix(in srgb,#F0A010 15%,var(--surface));color:#B87500}
+.st-check.bad{background:color-mix(in srgb,var(--out) 12%,var(--surface));color:var(--out)}
+.st-check span{color:var(--ink-2)} .st-check b{color:var(--ink)}
+.st-items{display:flex;flex-direction:column;gap:6px;margin-bottom:8px}
+.st-item{display:grid;grid-template-columns:1fr 108px 36px;gap:6px;align-items:center}
+.st-item .field{margin:0!important;padding:10px 11px!important;font-size:13px}
+.st-item .field[inputmode]{text-align:right;font-variant-numeric:tabular-nums}
+.st-item .icon-btn{width:36px;height:36px}
+.st-sum{display:flex;flex-wrap:wrap;justify-content:space-between;gap:2px 8px;font-size:12.5px;color:var(--ink-2);margin:2px 2px 14px}
+.st-sum b{font-variant-numeric:tabular-nums;color:var(--ink)}
+.st-sum em{flex-basis:100%;font-style:normal;font-size:11.5px;color:var(--ink-3)}
+.st-sum em.warn{color:#B87500} .st-sum em.ok{color:var(--in)}
+.kv.tx-items{align-items:flex-start}
+.kv.tx-items>div{display:flex;flex-direction:column;gap:4px;min-width:0;flex:1;margin-left:16px}
+.kv.tx-items>div>div{display:flex;justify-content:space-between;gap:8px;font-size:12.5px}
+.kv.tx-items>div>div span{color:var(--ink-2);text-align:left}

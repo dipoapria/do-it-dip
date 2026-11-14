@@ -19,6 +19,8 @@ export interface Tx {
   /** Debt (utang/piutang) this transaction belongs to; debtInit marks the opening loan itself. */
   debt?: string;
   debtInit?: boolean;
+  /** Products read from a receipt photo (name, line price, quantity). */
+  items?: { name: string; amount: number; qty?: number }[];
   createdAt: number;
   updatedAt: number;
 }

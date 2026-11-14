@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OCR Lab</title>
+<style>
+  :root { color-scheme: light dark; --bg: #f4f6f6; --ink: #13201f; --card: #fff; --line: #d9e1e0; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #0f1716; --ink: #e6efee; --card: #182221; --line: #2a3735; } }
+  body { margin: 0; padding: 16px; font: 14px/1.45 system-ui, sans-serif; background: var(--bg); color: var(--ink); }
+  h1 { font-size: 18px; margin: 0 0 8px; }
+  #status { margin: 8px 0 12px; font-weight: 600; }
+  table { border-collapse: collapse; margin: 8px 0 16px; }
+  td, th { border: 1px solid var(--line); padding: 4px 8px; text-align: right; }
+  th:first-child, td:first-child { text-align: left; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
+  .case { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 8px; font-size: 12px; }
+  .case img { width: 100%; height: 220px; object-fit: contain; background: #000; border-radius: 6px; }
+  .bad { color: #d23; } .ok { color: #1a8a4a; }
+  pre { white-space: pre-wrap; max-height: 160px; overflow: auto; font-size: 11px; }
+</style>
+</head>
+<body>
+<h1>OCR Lab — struk tiruan</h1>
+<div id="status">Menyiapkan…</div>
+<div id="summary"></div>
+<div class="grid" id="cases"></div>
+<script type="module" src="./lab.ts"></script>
+</body>
+</html>

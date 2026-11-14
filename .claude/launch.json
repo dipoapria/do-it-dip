@@ -21,6 +21,17 @@
         "--strictPort"
       ],
       "port": 4173
+    },
+    {
+      "name": "ocr-lab",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "vite",
+        "--port",
+        "5199",
+        "--strictPort"
+      ],
+      "port": 5199
     }
   ]
 }
