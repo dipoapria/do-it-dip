@@ -8,8 +8,9 @@ import {
   PiggyBank, TrendingUp, TrendingDown, ShieldCheck, X, Check, Calendar, Info, Brain, Delete, Copy, Trash2, Lock, Tags,
   CloudUpload, Download, Upload, MonitorSmartphone, Sun, Moon, User, Laptop, Store, Users, Layers, Pointer, Pencil, Palette,
   Presentation, Minimize, Flame, Clapperboard, Camera, ImagePlus, FileSpreadsheet, ScanLine, Receipt, KeyRound, TriangleAlert, RotateCcw,
-  ScanFace, PartyPopper, Play, Hourglass, CloudDownload, RefreshCw, LogOut, Mail, LogIn,
+  ScanFace, PartyPopper, Play, Hourglass, CloudDownload, RefreshCw, LogOut, Mail, LogIn, Repeat, FileDown, SkipForward, CalendarClock,
 } from 'lucide';
+import { dueDates, nextAfter, occurrenceTx, ruleFromTx, scheduleLabel } from './recurring.ts';
 import { initLock, lockNow, setupPin, verifyPin, pinOn, enableBio, bioAvailable } from './lock.ts';
 import { initStories, openStories, storiesReady } from './stories.ts';
 import * as cloud from './cloud.ts';
@@ -32,7 +33,7 @@ const ICONS = {
   TrendingDown, ShieldCheck, X, Check, Calendar, Info, Brain, Delete, Copy, Trash2, Lock, Tags, CloudUpload, Download, Upload,
   MonitorSmartphone, Sun, Moon, User, Laptop, Store, Users, Layers, Pointer, Pencil, Palette, Presentation, Minimize, Flame, Clapperboard,
   Camera, ImagePlus, FileSpreadsheet, ScanLine, Receipt, KeyRound, TriangleAlert, RotateCcw,
-  ScanFace, PartyPopper, Play, Hourglass, CloudDownload, RefreshCw, LogOut, Mail, LogIn,
+  ScanFace, PartyPopper, Play, Hourglass, CloudDownload, RefreshCw, LogOut, Mail, LogIn, Repeat, FileDown, SkipForward, CalendarClock,
 };
 function icons() { createIcons({ icons: ICONS, attrs: { 'stroke-width': 2.2 } }); }
 
@@ -114,7 +115,7 @@ function countUp(el) {
 function txRow(t) {
   const c = catOf(t), w = W(t.wallet), sign = t.type === 'in' ? '+' : t.type === 'out' ? '−' : '';
   const meta = t.type === 'tf' ? `${esc(w.name)} → ${esc(W(t.to).name)}` : `${esc(t.sub)} · ${esc(w.name)}`;
-  return `<button class="tx${t.fresh ? ' fresh' : ''}" data-a="tx" data-id="${t.id}"><span class="ic" style="--c:${c.c}"><i data-lucide="${c.i}"></i></span><span class="tx-main"><b>${esc(t.note)}</b><small>${meta}</small></span><span class="amt ${t.type}">${sign}${money(t.amount)}</span></button>`;
+  return `<button class="tx${t.fresh ? ' fresh' : ''}" data-a="tx" data-id="${t.id}"><span class="ic" style="--c:${c.c}"><i data-lucide="${c.i}"></i></span><span class="tx-main"><b>${esc(t.note)}</b><small>${t.rec ? '<i data-lucide="repeat" class="rec-ic"></i>' : ''}${meta}</small></span><span class="amt ${t.type}">${sign}${money(t.amount)}</span></button>`;
 }
 function grouped(list) {
   const g = {}; list.forEach((t) => { (g[t.date] = g[t.date] || []).push(t); });
@@ -155,6 +156,7 @@ function vHome() {
     <button data-a="add" data-mode="impor"><span class="qi" style="--c:#10B981"><i data-lucide="file-spreadsheet"></i></span>Impor mutasi</button>
     <button data-a="tab" data-t="1"><span class="qi" style="--c:#F0A010"><i data-lucide="chart-pie"></i></span>Rekap</button>
   </div>
+  ${dueCardHTML()}
   ${storiesReady() ? `<button class="story-card st" style="--i:4" data-a="stories"><span class="sc-ic"><i data-lucide="clapperboard"></i></span><span><b>Rekap kilat minggu ini</b><small>6 kartu cerita · ketuk untuk memutar</small></span><span class="play"><i data-lucide="play"></i></span></button>` : ''}
   <div class="sec-h st" style="--i:4"><h3>7 hari terakhir</h3><small class="num">${money(wsum)}</small></div>
   <div class="card st" style="--i:4">
@@ -239,6 +241,7 @@ function vRekap(swap) {
   <div class="card chart"><h4>Pengeluaran harian <small>${st.n} transaksi</small></h4><div class="chart-note" id="daynote">${note}</div>${dailyChart(mk, st)}</div>
   <div class="card chart"><h4>Tren bulanan <span class="leg-inline"><span style="--c:var(--in)"><i></i>Masuk</span><span style="--c:var(--out)"><i></i>Keluar</span></span></h4>${trendChart(months.slice(Math.max(0, idx - 3), idx + 1))}</div>
   <div class="card"><h4>Catatan perencana keuangan</h4>${insights(mk, st, months)}</div>
+  <button class="btn2 dash" data-a="excel" style="margin-top:4px"><i data-lucide="file-down"></i>Ekspor ke Excel</button>
   </div></div>`;
 }
 function vDrill() {
@@ -347,12 +350,19 @@ function bindStack() {
   });
 }
 
+function rulesCardHTML() {
+  const rs = RULES();
+  return `<div class="card"><h4>Transaksi berulang ${rs.length ? `<span class="status">${rs.length} jadwal</span>` : ''}</h4>
+    ${rs.length ? rs.map((r) => { const c = ruleCat(r); return `<button class="set-row" data-a="ruleEdit" data-id="${r.id}"><span class="ic" style="--c:${c.c}"><i data-lucide="${c.i}"></i></span><div class="t"><b>${esc(r.note)}</b><small>${scheduleLabel(r)} · ${r.auto ? 'otomatis' : 'tanya dulu'} · berikutnya ${dayLabel(nextAfter(r, r.last), T())}</small></div><span class="amt ${r.type}">${money(r.amount)}</span></button>`; }).join('')
+    : '<p class="about" style="margin:0">Gaji, cicilan, atau langganan bisa dicatat otomatis setiap bulan. Buka transaksinya (misalnya gaji) di Beranda, lalu ketuk <b>Jadikan berulang</b>.</p>'}</div>`;
+}
 function vLainnya() {
   const kw = Object.entries(store.data.learned), set = store.data.settings;
   return `<div class="inner">
   <header class="top"><h2 class="title">Lainnya</h2></header>
   <div class="card"><h4>Profil</h4>
     <button class="set-row" data-a="rename"><span class="ic" style="--c:#13A894"><i data-lucide="user"></i></span><div class="t"><b>${esc(set.name || 'Tanpa nama')}</b><small>Nama sapaan di Beranda · ketuk untuk mengubah</small></div><i data-lucide="chevron-right"></i></button></div>
+  ${rulesCardHTML()}
   ${cloudCardHTML()}
   <div class="card"><h4>Cadangan manual <span class="status">${S.persisted ? 'Penyimpanan permanen aktif' : 'Di perangkat ini'}</span></h4>
     <p class="about" style="margin:0 0 4px">File cadangan (.json) bisa disimpan di Files atau Google Drive dan dipulihkan di perangkat mana pun.</p>
@@ -371,8 +381,9 @@ function vLainnya() {
     <p class="about" style="margin:0">${kw.length ? 'Ketuk untuk melupakan satu kata kunci.' : 'Belum ada. Saat mencatat lewat kalimat, ganti kategori di pratinjau; aplikasi akan mengingatnya.'}</p>
     ${kw.length ? `<div class="kw">${kw.map(([w, v]) => `<button data-a="unlearn" data-w="${esc(w)}" style="--c:${CATS[v.cat]?.c || '#94A3B8'}">${esc(w)} → ${CATS[v.cat]?.n || v.cat}<i data-lucide="x"></i></button>`).join('')}</div>` : ''}</div>
   <div class="card"><h4>Data</h4>
+    <button class="set-row" data-a="excel"><span class="ic" style="--c:#1E9E4F"><i data-lucide="file-down"></i></span><div class="t"><b>Ekspor ke Excel</b><small>Ringkasan, transaksi, dan per kategori (.xlsx)</small></div><i data-lucide="chevron-right"></i></button>
     <button class="set-row danger-row" data-a="wipe"><span class="ic" style="--c:#F43F5E"><i data-lucide="trash-2"></i></span><div class="t"><b>Hapus semua data</b><small>Transaksi, dompet, dan pengaturan di perangkat ini</small></div></button></div>
-  <div class="card about"><h4>Tentang</h4>Do it Dip 0.2 · Tahap 2. ${TX().length.toLocaleString('id-ID')} transaksi tersimpan. Berikutnya: cadangan online otomatis, anggaran, transaksi berulang, dan target tabungan.</div></div>`;
+  <div class="card about"><h4>Tentang</h4>Do it Dip 0.3 · Tahap 3. ${TX().length.toLocaleString('id-ID')} transaksi tersimpan. Berikutnya: target tabungan, utang & piutang, dan anggaran.</div></div>`;
 }
 function placePill(seg) { if (!seg) return; const on = seg.querySelector('button.on'), pill = seg.querySelector('.pill'); if (!on || !pill) return; pill.style.width = on.offsetWidth + 'px'; pill.style.transform = `translateX(${on.offsetLeft - 4}px)`; }
 
@@ -383,7 +394,7 @@ function renderPanel(i, arg) {
   const p = PANELS[i]; p.innerHTML = VIEWS[i](arg);
   if (i === 0) {
     setOdo($('odo'), S.dispTotal, true); bindHero();
-    if (!store.data.settings.lpLearned) { const t = p.querySelector('.list .tx'); if (t) t.insertAdjacentHTML('beforeend', '<span class="lp-hint"><i data-lucide="pointer"></i>Tahan</span>'); }
+    if (!store.data.settings.lpLearned) { const t = p.querySelector('.list .tx[data-id]'); if (t) t.insertAdjacentHTML('beforeend', '<span class="lp-hint"><i data-lucide="pointer"></i>Tahan</span>'); }
   }
   if (i === 2) { layoutStack(); initCards(); bindStack(); }
   if (i === 3) { placePill($('themeSeg')); placePill($('lockSeg')); }
@@ -810,14 +821,15 @@ function closeSheet(instant) {
   setTimeout(() => { if (L.contains(sh)) L.innerHTML = ''; }, 300);
 }
 function sTx(id) {
-  const t = TX().find((x) => x.id === id); if (!t) return; const c = catOf(t), w = W(t.wallet);
+  const t = TX().find((x) => x.id === id); if (!t) return; const c = catOf(t), w = W(t.wallet), rule = t.rec ? store.data.rules.find((r) => r.id === t.rec) : null;
   openSheet('Detail transaksi', `<div class="det-top"><span class="ic" style="--c:${c.c}"><i data-lucide="${c.i}"></i></span><div class="a" style="color:${t.type === 'in' ? 'var(--in)' : t.type === 'tf' ? 'var(--transfer)' : 'var(--ink)'}">${t.type === 'in' ? '+' : t.type === 'out' ? '−' : ''}${money(t.amount)}</div><p>${esc(t.note)}</p></div>
   <div class="card" style="padding:4px 14px">
     <div class="kv" style="border-top:0"><span>Kategori</span><b>${t.type === 'tf' ? 'Transfer' : `${c.n} · ${esc(t.sub)}`}</b></div>
     <div class="kv"><span>${t.type === 'tf' ? 'Dari → Ke' : 'Dompet'}</span><b>${t.type === 'tf' ? `${esc(w.name)} → ${esc(W(t.to).name)}` : esc(w.name)}</b></div>
     <div class="kv"><span>Tanggal</span><b>${longDate(t.date)}</b></div>
-    <div class="kv"><span>Buku</span><b>Pribadi</b></div></div>
+    <div class="kv"><span>Buku</span><b>Pribadi</b></div>${rule ? `<div class="kv"><span>Berulang</span><b>${scheduleLabel(rule)} · ${rule.auto ? 'otomatis' : 'tanya dulu'}</b></div>` : ''}</div>
   <div class="btn-row"><button class="btn2" data-a="edit" data-id="${t.id}"><i data-lucide="pencil"></i>Ubah</button><button class="btn2" data-a="dup" data-id="${t.id}"><i data-lucide="copy"></i>Duplikat hari ini</button></div>
+  ${rule ? `<button class="btn2 wide" data-a="ruleEdit" data-id="${rule.id}"><i data-lucide="repeat"></i>Atur jadwal berulang</button>` : `<button class="btn2 wide" data-a="ruleNew" data-id="${t.id}"><i data-lucide="repeat"></i>Jadikan berulang (gaji, cicilan, langganan)</button>`}
   <button class="danger" data-a="del" data-id="${t.id}">Hapus transaksi</button>`);
 }
 function sBooks() {
@@ -910,13 +922,7 @@ function setTheme(t, btn) {
 /* ================= backup ================= */
 async function exportBackup() {
   const json = JSON.stringify(store.exportAll(), null, 1), name = `do-it-dip-cadangan-${T()}.json`;
-  const file = new File([json], name, { type: 'application/json' });
-  const touch = window.matchMedia && matchMedia('(pointer: coarse)').matches;
-  try {
-    if (touch && navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: 'Cadangan Do it Dip' }); toast('Cadangan siap disimpan'); return; }
-  } catch (e) { if (e && e.name === 'AbortError') return; }
-  const a = document.createElement('a'); a.href = URL.createObjectURL(file); a.download = name; document.body.appendChild(a); a.click(); a.remove();
-  setTimeout(() => URL.revokeObjectURL(a.href), 4000); toast('Cadangan diunduh: ' + name);
+  await saveFile(new File([json], name, { type: 'application/json' }), 'Cadangan Do it Dip', 'Cadangan siap disimpan');
 }
 async function readBackupFile(file) {
   let obj; try { obj = JSON.parse(await file.text()); } catch { toast('File tidak bisa dibaca sebagai cadangan'); return; }
@@ -926,6 +932,116 @@ async function readBackupFile(file) {
   if (!store.data.settings.onboarded || TX().length === 0) { closeSheet(true); await go(); return; }
   sConfirm('Pulihkan cadangan?', `Cadangan dari ${when} berisi <b>${n} transaksi</b>. Semua data di perangkat ini akan diganti dengan isi cadangan dan tidak bisa dibatalkan. Sebaiknya ekspor cadangan data saat ini dulu.`, 'Ganti dengan cadangan', go);
 }
+/* ================= files (share sheet on iPhone, download on laptop) ================= */
+async function saveFile(file, title, doneMsg) {
+  const touch = window.matchMedia && matchMedia('(pointer: coarse)').matches;
+  try {
+    if (touch && navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title }); toast(doneMsg); return; }
+  } catch (e) { if (e && e.name === 'AbortError') return; }
+  const a = document.createElement('a'); a.href = URL.createObjectURL(file); a.download = file.name; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000); toast('Diunduh: ' + file.name);
+}
+
+/* ================= recurring transactions ================= */
+const lc1 = (s) => s.charAt(0).toLowerCase() + s.slice(1);
+const RULES = () => store.data.rules.slice().sort((a, b) => (nextAfter(a, a.last) < nextAfter(b, b.last) ? -1 : 1));
+const ruleCat = (r) => (r.type === 'tf' ? { n: 'Transfer', c: '#3D7BFF', i: 'arrow-left-right' } : CATS[r.cat] || CATS.lain);
+const ruleMeta = (r) => (r.type === 'tf' ? `${esc(W(r.wallet).name)} → ${esc(W(r.to).name)}` : `${esc(r.sub || ruleCat(r).n)} · ${esc(W(r.wallet).name)}`);
+/** Rules waiting for confirmation on Beranda: the oldest due date of each "ask first" rule. */
+const dueAsk = () => RULES().filter((r) => !r.auto).map((r) => ({ r, d: dueDates(r, T()) })).filter((x) => x.d.length);
+/** Record what is due for "automatic" rules. Ids are fixed per date, so running it twice (or on two devices) never duplicates. */
+function runRecurring() {
+  if (!store.data.settings.onboarded) return;
+  const made = [];
+  for (const r of store.data.rules) {
+    if (!r.auto) continue;
+    const ds = dueDates(r, T()); if (!ds.length) continue;
+    for (const d of ds) if (store.addTxWithId(occurrenceTx(r, d, Date.now()))) made.push(r.note);
+    store.saveRule({ ...r, last: ds[ds.length - 1] });
+  }
+  if (made.length) { refresh(); toast(made.length === 1 ? `${made[0]} dicatat otomatis` : `${made.length} transaksi berulang dicatat otomatis`); }
+  else if (dueAsk().length && PANELS[0]) { renderPanel(0); icons(); setOdo($('odo'), S.dispTotal, true); }
+}
+function recordDue(id, amount) {
+  const r = store.data.rules.find((x) => x.id === id); if (!r) return;
+  const d = dueDates(r, T())[0]; if (!d) return;
+  const t = occurrenceTx(r, d, Date.now(), amount || r.amount);
+  store.addTxWithId(t); store.saveRule({ ...r, last: d });
+  markFresh([t]); closeSheet(); refresh(); toast(`${r.note} dicatat · ${rp(t.amount)}`);
+}
+function dueCardHTML() {
+  const list = dueAsk(); if (!list.length) return '';
+  return `<div class="sec-h st" style="--i:4"><h3>Jatuh tempo</h3><small>${list.length} menunggu dicatat</small></div>
+  <div class="list due st" style="--i:4">${list.map(({ r, d }) => { const c = ruleCat(r); return `<div class="tx due-row">
+    <button class="due-main" data-a="dueOpen" data-id="${r.id}"><span class="ic" style="--c:${c.c}"><i data-lucide="${c.i}"></i></span><span class="tx-main"><b>${esc(r.note)}</b><small>${dayLabel(d[0], T())}${d.length > 1 ? ` · +${d.length - 1} lagi` : ''} · ${money(r.amount)}</small></span></button>
+    <button class="due-go" data-a="dueRec" data-id="${r.id}" aria-label="Catat ${esc(r.note)}"><i data-lucide="check"></i>Catat</button></div>`; }).join('')}</div>`;
+}
+function sDue(id) {
+  const r = store.data.rules.find((x) => x.id === id); if (!r) return; const d = dueDates(r, T())[0]; if (!d) return; const c = ruleCat(r);
+  openSheet('Jatuh tempo', `<div class="det-top"><span class="ic" style="--c:${c.c}"><i data-lucide="${c.i}"></i></span><p>${esc(r.note)}</p><small class="rf-sub">${ruleMeta(r)} · ${longDate(d)}</small></div>
+    <span class="lab">Nominal kali ini</span><input class="field" id="dueAmt" inputmode="numeric" value="${fmtN(r.amount)}" autocomplete="off">
+    <p class="form-note">Ubah nominalnya kalau tagihan bulan ini berbeda. Jadwalnya tetap ${lc1(scheduleLabel(r))}.</p>
+    <button class="primary" data-a="dueSave" data-id="${r.id}"><i data-lucide="check"></i>Catat</button>
+    <div class="btn-row"><button class="btn2" data-a="dueSkip" data-id="${r.id}"><i data-lucide="skip-forward"></i>Lewati kali ini</button><button class="btn2" data-a="ruleEdit" data-id="${r.id}"><i data-lucide="repeat"></i>Atur jadwal</button></div>`);
+}
+let RF = null; // rule form: { r: draft rule, isNew, txId }
+function rfInner() {
+  const r = RF.r, next = nextAfter(r, r.last);
+  const days = r.every === 'month'
+    ? Array.from({ length: 31 }, (_, i) => i + 1).map((n) => `<button class="chip ${r.day === n ? 'on' : ''}" data-a="rfDay" data-v="${n}">${n === 31 ? 'Akhir bulan' : n}</button>`).join('')
+    : HARI_P.map((h, i) => `<button class="chip ${r.day === i ? 'on' : ''}" data-a="rfDay" data-v="${i}">${h}</button>`).join('');
+  return `<span class="lab">Nominal</span><input class="field" id="rfAmt" inputmode="numeric" value="${r.amount ? fmtN(r.amount) : ''}" placeholder="0" autocomplete="off">
+    <span class="lab">Ulangi</span><div class="seg" id="rfEvery" style="margin-bottom:12px"><span class="pill"></span><button class="${r.every === 'month' ? 'on' : ''}" data-a="rfEvery" data-v="month">Tiap bulan</button><button class="${r.every === 'week' ? 'on' : ''}" data-a="rfEvery" data-v="week">Tiap minggu</button></div>
+    <span class="lab">${r.every === 'month' ? 'Tanggal' : 'Hari'}</span><div class="hscroll" id="rfDays">${days}</div>
+    <span class="lab">Saat jatuh tempo</span><div class="seg" id="rfAuto" style="margin-bottom:10px"><span class="pill"></span><button class="${r.auto ? 'on' : ''}" data-a="rfAuto" data-v="1">Catat otomatis</button><button class="${r.auto ? '' : 'on'}" data-a="rfAuto" data-v="0">Tanya dulu</button></div>
+    <p class="form-note">Berikutnya <b>${longDate(next)}</b>. ${r.auto ? 'Langsung dicatat saat aplikasi dibuka pada hari itu atau sesudahnya. Cocok untuk gaji dan cicilan tetap.' : 'Muncul di Beranda untuk dikonfirmasi, dan nominalnya bisa diubah. Cocok untuk listrik atau tagihan yang berubah-ubah.'}</p>
+    <button class="primary" data-a="rfSave"><i data-lucide="check"></i>${RF.isNew ? 'Jadikan berulang' : 'Simpan'}</button>
+    ${RF.isNew ? '' : '<button class="danger" data-a="rfDelete">Hentikan pengulangan</button><p class="form-note" style="margin-top:10px;text-align:center">Transaksi yang sudah tercatat tidak ikut terhapus.</p>'}`;
+}
+function rfDraw() {
+  const b = $('rfBody'); if (!b) return; const sc = b.closest('.sheet-body')?.scrollTop || 0;
+  b.innerHTML = rfInner(); icons(); placePill($('rfEvery')); placePill($('rfAuto'));
+  const on = b.querySelector('#rfDays .chip.on'); if (on) on.parentElement.scrollLeft = on.offsetLeft - 60;
+  if (b.closest('.sheet-body')) b.closest('.sheet-body').scrollTop = sc;
+}
+function sRuleForm(r, isNew, txId) {
+  RF = { r: { ...r }, isNew, txId }; const c = ruleCat(r);
+  openSheet(isNew ? 'Jadikan berulang' : 'Transaksi berulang', `<div class="rf-top"><span class="ic" style="--c:${c.c}"><i data-lucide="${c.i}"></i></span><div class="tx-main"><b>${esc(r.note)}</b><small>${ruleMeta(r)}</small></div></div><div id="rfBody">${rfInner()}</div>`);
+  later(60, rfDraw);
+}
+function sRuleFromTx(id) {
+  const t = TX().find((x) => x.id === id); if (!t) return;
+  const r = ruleFromTx(t, store.newRuleId(), 'month', Date.now());
+  if (r.last < T()) r.last = T(); // never back-fill the months between an old transaction and today
+  sRuleForm(r, true, t.id);
+}
+
+/* ================= Excel export ================= */
+let EX = { range: 'month' };
+function exPeriod(range) {
+  const mk = S.mk || T().slice(0, 7);
+  if (range === 'month') return { from: mk + '-01', to: `${mk}-${pad(daysIn(mk))}`, label: monthName(mk), file: mk };
+  if (range === 'year') { const y = mk.slice(0, 4); return { from: y + '-01-01', to: y + '-12-31', label: 'Tahun ' + y, file: y }; }
+  const ds = TX().map((t) => t.date).sort(), a = ds[0] || T(), b = ds[ds.length - 1] || T();
+  return { from: a, to: b, label: `Semua data (${dayLabel(a, '')} – ${dayLabel(b, '')})`, file: 'semua-' + T() };
+}
+function exInner() {
+  const p = exPeriod(EX.range), n = TX().filter((t) => t.date >= p.from && t.date <= p.to).length, mk = S.mk || T().slice(0, 7);
+  return `<p class="confirm-text">File <b>.xlsx</b> berisi 3 lembar: <b>Ringkasan</b>, <b>Transaksi</b>, dan <b>Per kategori</b>. Bisa dibuka di Excel, Google Sheets, atau Numbers.</p>
+    <div class="seg" id="exRange" style="margin-bottom:12px"><span class="pill"></span>${[['month', monthName(mk)], ['year', 'Tahun ' + mk.slice(0, 4)], ['all', 'Semua']].map(([k, l]) => `<button class="${EX.range === k ? 'on' : ''}" data-a="exRange" data-v="${k}">${esc(l)}</button>`).join('')}</div>
+    <p class="form-note">${n ? `${n.toLocaleString('id-ID')} transaksi · ${esc(p.label)}` : 'Belum ada transaksi di periode ini.'}</p>
+    <button class="primary" data-a="exGo" ${n ? '' : 'disabled'}><i data-lucide="file-down"></i>Buat file Excel</button>`;
+}
+function sExport() { EX = { range: 'month' }; openSheet('Ekspor ke Excel', `<div id="exBody">${exInner()}</div>`); later(60, () => placePill($('exRange'))); }
+async function exportExcel(p) {
+  try {
+    const { buildSheets, toXlsx } = await import('./excel.ts');
+    const blob = await toXlsx(buildSheets(TX(), store.data.wallets, p, (w) => bal(w), store.data.settings.name));
+    const file = new File([blob], `do-it-dip-${p.file}.xlsx`, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    closeSheet(); await saveFile(file, 'Rekap Do it Dip', 'File Excel siap disimpan');
+  } catch (e) { console.error(e); toast('Gagal membuat file Excel. Coba lagi.'); }
+}
+
 /* ================= online backup (Supabase) ================= */
 const C = { state: 'idle', err: '', timer: null, form: { mode: 'in', email: '', busy: false, err: '', info: '' } };
 const cloudOn = () => !!store.data.settings.cloudEmail;
@@ -984,18 +1100,19 @@ async function applyCloud() {
 /** Bring this device and the cloud copy in line: pull when only the cloud changed, push when only this device changed, ask when both did. */
 async function syncNow(manual) {
   if (!cloudOn() || C.state === 'syncing') return;
-  C.state = 'syncing'; redrawCloudCard();
+  C.state = 'syncing'; redrawCloudCard(); let conflict = false;
   try {
     const m = await cloud.meta(), s = store.data.settings;
     C.state = 'idle';
     if (!m) { await pushNow(); if (manual && C.state === 'ok') toast('Cadangan online dibuat'); return; }
     const cloudNewer = ts(m.updated_at) > ts(s.cloudLastSync);
     if (cloudNewer && (!s.cloudDirty || TX().length === 0)) { await applyCloud(); C.state = 'ok'; toast(`Data diperbarui dari ${m.device || 'cloud'} (${m.tx_count} transaksi)`); }
-    else if (cloudNewer) { sConflict(m); }
+    else if (cloudNewer) { conflict = true; sConflict(m); }
     else if (s.cloudDirty) { await pushNow(); }
     else { C.state = 'ok'; if (manual) toast('Sudah tersinkron'); }
   } catch (e) { C.state = 'error'; C.err = cloud.cloudError(e); console.error(e); }
   redrawCloudCard();
+  if (!conflict) runRecurring(); // after pulling, so two devices don't both record the same due item
 }
 function sConflict(m) {
   openSheet('Data berbeda', `<p class="confirm-text">Data di perangkat ini dan di cloud sama-sama berubah sejak sinkron terakhir, jadi saya tidak menimpa salah satunya tanpa izin. Pilih yang ingin dipakai:</p>
@@ -1086,6 +1203,7 @@ function bindEvents() {
     if (id === 'obName') S.ob.name = e.target.value;
     if (id === 'stAmt') { const v = digitsOnly(e.target.value); e.target.value = v ? fmtN(v) : ''; S.struk.form.amount = v; const b = document.querySelector('[data-a="saveStruk"]'); if (b) b.disabled = !v; }
     if (id === 'stNote') S.struk.form.note = e.target.value;
+    if (id === 'rfAmt' || id === 'dueAmt') { const v = digitsOnly(e.target.value); e.target.value = v ? fmtN(v) : ''; if (id === 'rfAmt') RF.r.amount = Number(v) || 0; }
     if (id === 'stDate' && e.target.value) S.struk.form.date = e.target.value > T() ? T() : e.target.value;
     if (id.startsWith('obw-') || id === 'wfInit') { const v = digitsOnly(e.target.value); e.target.value = v ? fmtN(v) : ''; if (id.startsWith('obw-')) S.ob.wallets[Number(id.slice(4))].init = String(v); }
   });
@@ -1119,7 +1237,7 @@ function bindEvents() {
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) { if (cloudOn() && store.data.settings.cloudDirty) pushNow(); return; }
     if (store.data.settings.onboarded && $('composer').hidden) refresh();
-    if (cloudOn()) syncNow(false);
+    if (cloudOn()) syncNow(false); else runRecurring();
   });
   if (window.matchMedia) matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', () => {});
 }
@@ -1256,8 +1374,8 @@ function onClick(e) {
     }
     case 'cloudSync': syncNow(true); break;
     case 'cloudOut': sConfirm('Putuskan cadangan online?', 'Data di perangkat ini tetap ada. Cadangan di cloud juga tidak dihapus, dan Anda bisa menyambungkannya lagi kapan saja.', 'Putuskan', async () => { try { await cloud.signOut(); } catch {} ['cloudEmail', 'cloudLastSync'].forEach((k) => store.setSetting(k, '')); store.setSetting('cloudDirty', false); C.state = 'idle'; redrawCloudCard(); toast('Cadangan online diputuskan'); }); break;
-    case 'conflictCloud': closeSheet(); C.state = 'syncing'; applyCloud().then(() => { C.state = 'ok'; toast('Memakai data dari cloud'); }).catch((e) => { C.state = 'error'; C.err = cloud.cloudError(e); }).finally(redrawCloudCard); break;
-    case 'conflictLocal': closeSheet(); pushNow().then(() => { if (C.state === 'ok') toast('Data perangkat ini diunggah ke cloud'); }); break;
+    case 'conflictCloud': closeSheet(); C.state = 'syncing'; applyCloud().then(() => { C.state = 'ok'; toast('Memakai data dari cloud'); runRecurring(); }).catch((e) => { C.state = 'error'; C.err = cloud.cloudError(e); }).finally(redrawCloudCard); break;
+    case 'conflictLocal': closeSheet(); pushNow().then(() => { if (C.state === 'ok') toast('Data perangkat ini diunggah ke cloud'); runRecurring(); }); break;
     /* security + stories */
     case 'stories': openStories(); break;
     case 'pinToggle': {
@@ -1304,6 +1422,24 @@ function onClick(e) {
     case 'obBack': S.ob.step = 0; renderOnb(); break;
     case 'obToggle': { const w = S.ob.wallets[Number(d.i)]; w.on = !w.on; renderOnb(); break; }
     case 'obDone': finishOnboarding(); break;
+    case 'ruleNew': sRuleFromTx(d.id); break;
+    case 'ruleEdit': { const r = store.data.rules.find((x) => x.id === d.id); if (r) sRuleForm(r, false); break; }
+    case 'rfEvery': if (RF.r.every !== d.v) { RF.r.every = d.v; RF.r.day = d.v === 'week' ? toD(RF.r.last).getDay() : Number(RF.r.last.slice(8)); rfDraw(); } break;
+    case 'rfDay': RF.r.day = Number(d.v); rfDraw(); break;
+    case 'rfAuto': RF.r.auto = d.v === '1'; rfDraw(); break;
+    case 'rfSave': {
+      const r = RF.r; if (!r.amount) { toast('Isi nominalnya dulu'); $('rfAmt')?.focus(); break; }
+      store.saveRule(r); if (RF.txId) store.updateTx(RF.txId, { rec: r.id });
+      closeSheet(); refresh(); toast(`${r.note}: ${lc1(scheduleLabel(r))}${r.auto ? ', dicatat otomatis' : ''}`); runRecurring(); break;
+    }
+    case 'rfDelete': { const r = RF.r; sConfirm('Hentikan pengulangan?', `<b>${esc(r.note)}</b> tidak akan dicatat lagi ${lc1(scheduleLabel(r))}. Transaksi yang sudah tercatat tetap ada.`, 'Hentikan', () => { store.deleteRule(r.id); refresh(); toast('Pengulangan dihentikan'); }); break; }
+    case 'dueOpen': sDue(d.id); break;
+    case 'dueRec': recordDue(d.id); break;
+    case 'dueSave': recordDue(d.id, Number(digitsOnly($('dueAmt')?.value || '')) || 0); break;
+    case 'dueSkip': { const r = store.data.rules.find((x) => x.id === d.id), dd = r && dueDates(r, T())[0]; if (dd) { store.saveRule({ ...r, last: dd }); closeSheet(); refresh(); toast(`${r.note} dilewati untuk ${dayLabel(dd, T())}`); } break; }
+    case 'excel': sExport(); break;
+    case 'exRange': EX.range = d.v; $('exBody').innerHTML = exInner(); icons(); placePill($('exRange')); break;
+    case 'exGo': el.disabled = true; el.innerHTML = '<i data-lucide="hourglass"></i>Membuat file…'; icons(); exportExcel(exPeriod(EX.range)); break;
   }
 }
 
@@ -1336,12 +1472,13 @@ export async function start() {
   app().innerHTML = SHELL;
   PANELS = [0, 1, 2, 3].map((i) => $('p' + i));
   bindEvents(); bindTrack(); bindDrill();
-  initDesk({ icons, onPhoneShown });
+  initDesk({ icons, onPhoneShown, exportExcel });
   initLock({ icons, toast, onWipe: async () => { await store.wipe(); afterDataReset(); } });
   initStories({ icons, toast, goRekap: () => goTab(1) });
   if (store.data.settings.onboarded) lockNow(); // lock screen first, before anything is visible
   store.onChange(markDirty);
   if (store.data.settings.onboarded && cloudOn()) setTimeout(() => syncNow(false), 800);
+  else if (store.data.settings.onboarded) setTimeout(runRecurring, 600);
   store.requestPersist().then((ok) => { S.persisted = ok; });
   bioAvailable().then((ok) => { S.bioAvail = ok; if (ok && PANELS[3]) { renderPanel(3); icons(); } });
   renderAll(); setPos(0); PANELS[0].classList.add('play');

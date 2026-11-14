@@ -103,3 +103,17 @@ body.veil::after{content:"";position:fixed;inset:0;z-index:1999;background:var(-
 .status.warn{color:#C98A00;background:color-mix(in srgb,#F0A010 16%,var(--surface))}
 .status.bad{color:var(--out);background:color-mix(in srgb,var(--out) 13%,var(--surface))}
 .code-field{font:800 26px var(--f-display);letter-spacing:.35em;text-align:center}
+
+/* recurring transactions */
+.due-row{padding:6px 6px 6px 0}
+.due-row .due-main{flex:1;min-width:0;display:flex;align-items:center;gap:12px;padding:4px 0 4px 10px;text-align:left}
+.due-go{flex:none;display:flex;align-items:center;gap:5px;padding:9px 12px;border-radius:13px;font-weight:800;font-size:12.5px;color:#fff;background:linear-gradient(140deg,var(--brand),var(--brand-2));transition:transform .2s var(--spring)}
+.due-go:active{transform:scale(.92)}
+.due-go svg.lucide{width:15px;height:15px}
+.list.due{border-color:color-mix(in srgb,var(--brand) 35%,var(--line))}
+.rec-ic{width:11px!important;height:11px!important;vertical-align:-1px;margin-right:4px;color:var(--brand)}
+.rf-top{display:flex;align-items:center;gap:12px;padding:4px 2px 14px}
+.rf-top .ic{flex:none}
+.rf-sub{display:block;margin-top:4px;color:var(--ink-3);font-size:12px}
+.btn2.wide{width:100%;margin-top:8px}
+#rfDays{margin-bottom:12px}

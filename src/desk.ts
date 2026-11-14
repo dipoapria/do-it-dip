@@ -6,7 +6,7 @@ import { balance, monthList, stats } from './stats.ts';
 import { addMonths, BLN, BULAN, dayLabel, daysIn, esc, monthName, pad, pct, rp, shortTxt, todayStr } from './format.ts';
 import * as store from './store.ts';
 
-type Api = { icons: () => void; onPhoneShown: () => void };
+type Api = { icons: () => void; onPhoneShown: () => void; exportExcel: (p: { from: string; to: string; label: string; file: string }) => void };
 let api: Api;
 let root: HTMLElement | null = null;
 const D = { mode: 'month', mk: null, year: null, cat: null, slide: 0, presenting: false };
@@ -161,6 +161,7 @@ export function render(swap = '') {
         <div class="dk-seg"><button class="${D.mode === 'month' ? 'on' : ''}" data-a="dkMode" data-v="month">Bulan</button><button class="${D.mode === 'year' ? 'on' : ''}" data-a="dkMode" data-v="year">Tahun</button></div>
         <div class="dk-step"><button data-a="dkStep" data-d="-1" ${canStep(-1) ? '' : 'disabled'} aria-label="Periode sebelumnya"><i data-lucide="chevron-left"></i></button><span>${esc(D.mode === 'year' ? String(D.year) : monthName(D.mk))}</span><button data-a="dkStep" data-d="1" ${canStep(1) ? '' : 'disabled'} aria-label="Periode berikutnya"><i data-lucide="chevron-right"></i></button></div>
         <button class="dk-btn" data-a="dkHide" aria-label="Sembunyikan nominal"><i data-lucide="${root.classList.contains('hid') ? 'eye-off' : 'eye'}"></i></button>
+        <button class="dk-btn" data-a="dkExcel" title="Unduh rekap periode ini sebagai Excel"><i data-lucide="file-down"></i>Excel</button>
         <button class="dk-btn" data-a="dkPhone"><i data-lucide="smartphone"></i>Catat</button>
         <button class="dk-btn dk-go" data-a="dkPresent"><i data-lucide="presentation"></i>Presentasi</button>
       </div>
@@ -248,6 +249,7 @@ export function initDesk(a: Api) {
       case 'dkCat': D.cat = d.cat || null; render(); break;
       case 'dkHide': { const hid = !root.classList.contains('hid'); root.classList.toggle('hid', hid); document.getElementById('app')?.classList.toggle('hid', hid); render(); break; }
       case 'dkPhone': openPhone(); break;
+      case 'dkExcel': { const P = period(); api.exportExcel(D.mode === 'year' ? { from: P.key + '-01-01', to: P.key + '-12-31', label: P.label, file: P.key } : { from: P.key + '-01', to: P.key + '-' + pad(daysIn(P.key)), label: P.label, file: P.key }); break; }
       case 'dkPresent': startPresent(); break;
       case 'dkExit': stopPresent(); break;
       case 'dkSlide': goSlide(D.slide + Number(d.d)); break;

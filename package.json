@@ -18,7 +18,8 @@
     "lucide": "^1.71.0",
     "pdfjs-dist": "^6.5.438",
     "read-excel-file": "^9.3.14",
-    "tesseract.js": "^7.0.0"
+    "tesseract.js": "^7.0.0",
+    "write-excel-file": "^4.1.1"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",

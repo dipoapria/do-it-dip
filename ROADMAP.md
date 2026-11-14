@@ -18,7 +18,7 @@ Perbarui file ini setiap ada fitur yang selesai, supaya tidak ada yang terlewat.
 | Tarik layar ke bawah untuk mencatat | mockup v2 | ✅ |
 | **Foto struk (OCR) → transaksi otomatis** | rencana awal, mockup v1 & v2 | ✅ dibaca di HP (Tesseract), hasil bisa dikoreksi sebelum disimpan |
 | **Impor mutasi bank → dikategorikan otomatis** | rencana awal, mockup v1 & v2 | ✅ **Bank Permata:** PDF Mutasi Transaksi PermataMobile X (diuji dengan file asli) · 🟡 **Bank Sumsel Babel:** belum ada fitur unduh mutasi → impor dari screenshot riwayat transaksi (berfungsi untuk tata letak umum; perlu contoh screenshot asli BSB) · ✅ CSV/.xlsx umum, PDF bersandi, deteksi duplikat |
-| Transaksi berulang (gaji, cicilan, langganan) | rencana awal | ⏳ |
+| **Transaksi berulang (gaji, cicilan, langganan)** | rencana awal | ✅ dari detail transaksi → *Jadikan berulang*; tiap bulan (tanggal, termasuk akhir bulan) atau tiap minggu; *catat otomatis* atau *tanya dulu* (kartu Jatuh tempo di Beranda, nominal bisa diubah, bisa dilewati); daftar di Lainnya; ikut cadangan & sinkron, tidak dobel antar perangkat |
 
 ## Mengendalikan
 
@@ -53,10 +53,12 @@ Perbarui file ini setiap ada fitur yang selesai, supaya tidak ada yang terlewat.
 | Tema terang/gelap dengan efek menyebar | mockup v2 | ✅ |
 | **Kunci PIN saat aplikasi dibuka** | rencana awal (Tahap 1), mockup v1 & v2 | ✅ PIN 4/6 digit (hash PBKDF2), Face ID/Touch ID, kunci otomatis (langsung/1/5 menit), tampilan tertutup di pengalih aplikasi |
 | **Cadangan online otomatis + sinkron HP ↔ laptop** | permintaan awal | ✅ Supabase (proyek milik pengguna), masuk email + kata sandi, unggah otomatis setelah perubahan, ambil otomatis saat dibuka, pilihan saat dua perangkat sama-sama berubah, RLS per akun |
-| Ekspor ke Excel | mockup v1 & v2 | ⏳ |
+| **Ekspor ke Excel** | mockup v1 & v2 | ✅ .xlsx berisi Ringkasan, Transaksi, Per kategori; periode bulan / tahun / semua (Rekap & Lainnya di HP, tombol Excel di laptop mengikuti periode yang tampil) |
 
 ## Catatan teknis untuk fitur berikutnya
 
 - **Foto struk:** Tesseract.js bahasa Indonesia, dijalankan di HP. Pemakaian pertama mengunduh ±5 MB dari CDN lalu disimpan untuk offline. Kode: src/ocr.ts, src/receipt.ts.
 - **Impor mutasi:** src/statement.ts mengenali 3 tata letak: tabel berjudul kolom (CSV/Excel), baris bertanggal dengan saldo berjalan (PDF bank umum), dan kartu per tanggal tanpa saldo (PDF PermataMobile X). Screenshot dibaca lewat OCR (src/ocr.ts) lalu masuk ke pembaca baris. Format .xls lama dan PDF hasil scan belum didukung.
 - **Cadangan online:** Supabase (gratis). Sekaligus menjadi dasar buku keluarga nanti.
+- **Transaksi berulang:** src/recurring.ts (jadwal murni + tes). Id transaksi tetap per aturan dan tanggal (`r-<aturan>-<tanggal>`), dan dijalankan setelah sinkron cloud, jadi dua perangkat tidak mencatat dua kali.
+- **Excel:** src/excel.ts membangun isi lembar (dites di Node) lalu ditulis dengan write-excel-file (dimuat hanya saat ekspor).

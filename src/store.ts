@@ -2,6 +2,7 @@
 // every change is written to memory first (instant UI) and then persisted.
 import Dexie, { type Table } from 'dexie';
 import { DEFAULT_SETTINGS, type Settings, type Tx, type Wallet } from './model.ts';
+import type { Rule } from './recurring.ts';
 
 interface Learned { word: string; cat: string; sub: string }
 interface SettingRow { key: string; value: unknown }
@@ -11,9 +12,11 @@ class DipDB extends Dexie {
   wallets!: Table<Wallet, string>;
   learned!: Table<Learned, string>;
   settings!: Table<SettingRow, string>;
+  rules!: Table<Rule, string>;
   constructor() {
     super('do-it-dip');
     this.version(1).stores({ tx: 'id,date,book,wallet,type', wallets: 'id,order', learned: 'word', settings: 'key' });
+    this.version(2).stores({ rules: 'id' });
   }
 }
 export const db = new DipDB();
@@ -23,6 +26,7 @@ export const data = {
   wallets: [] as Wallet[],
   learned: {} as Record<string, { cat: string; sub: string }>,
   settings: { ...DEFAULT_SETTINGS } as Settings,
+  rules: [] as Rule[],
 };
 
 const fail = (e: unknown) => {
@@ -40,9 +44,10 @@ export function onChange(fn: () => void): void { changeListener = fn; }
 function changed(): void { if (changeListener) changeListener(); }
 
 export async function load(): Promise<void> {
-  const [t, w, l, s] = await Promise.all([db.tx.toArray(), db.wallets.toArray(), db.learned.toArray(), db.settings.toArray()]);
+  const [t, w, l, s, r] = await Promise.all([db.tx.toArray(), db.wallets.toArray(), db.learned.toArray(), db.settings.toArray(), db.rules.toArray()]);
   data.txs = t;
   data.wallets = w;
+  data.rules = r;
   data.learned = Object.fromEntries(l.map((x) => [x.word, { cat: x.cat, sub: x.sub }]));
   data.settings = { ...DEFAULT_SETTINGS, ...Object.fromEntries(s.map((x) => [x.key, x.value])) } as Settings;
 }
@@ -101,6 +106,28 @@ export async function saveWallets(ws: Wallet[]): Promise<void> {
   changed();
 }
 
+/** Add a transaction with a fixed id (recurring occurrences); false when it already exists. */
+export function addTxWithId(t: Tx): boolean {
+  if (data.txs.some((x) => x.id === t.id)) return false;
+  data.txs.push(t);
+  db.tx.put(t).catch(fail);
+  changed();
+  return true;
+}
+
+export function saveRule(r: Rule): void {
+  const i = data.rules.findIndex((x) => x.id === r.id);
+  if (i >= 0) data.rules[i] = r; else data.rules.push(r);
+  db.rules.put(r).catch(fail);
+  changed();
+}
+export function deleteRule(id: string): void {
+  data.rules = data.rules.filter((r) => r.id !== id);
+  db.rules.delete(id).catch(fail);
+  changed();
+}
+export const newRuleId = () => uid().slice(0, 8);
+
 export function learn(word: string, cat: string, sub: string): void {
   data.learned[word] = { cat, sub };
   db.learned.put({ word, cat, sub }).catch(fail);
@@ -121,13 +148,13 @@ export function setSetting<K extends keyof Settings>(key: K, value: Settings[K])
 /* ---------- backup ---------- */
 export interface Backup {
   app: 'do-it-dip'; version: 1; exportedAt: string;
-  data: { tx: Tx[]; wallets: Wallet[]; learned: Learned[]; settings: Partial<Settings> };
+  data: { tx: Tx[]; wallets: Wallet[]; learned: Learned[]; settings: Partial<Settings>; rules?: Rule[] };
 }
 export function exportAll(): Backup {
   return {
     app: 'do-it-dip', version: 1, exportedAt: new Date().toISOString(),
     data: {
-      tx: data.txs, wallets: data.wallets,
+      tx: data.txs, wallets: data.wallets, rules: data.rules,
       learned: Object.entries(data.learned).map(([word, v]) => ({ word, ...v })),
       settings: Object.fromEntries(Object.entries(data.settings).filter(([k]) => !DEVICE_KEYS.includes(k as keyof Settings))) as Partial<Settings>,
     },
@@ -146,9 +173,10 @@ export async function importAll(b: Backup): Promise<void> {
   // Keep this device's own settings (PIN, Face ID, theme, cloud link); take everything else from the backup.
   const local = Object.fromEntries(DEVICE_KEYS.map((k) => [k, data.settings[k]]));
   const incoming = Object.fromEntries(Object.entries(b.data.settings || {}).filter(([k]) => !DEVICE_KEYS.includes(k as keyof Settings)));
-  await db.transaction('rw', [db.tx, db.wallets, db.learned, db.settings], async () => {
-    await Promise.all([db.tx.clear(), db.wallets.clear(), db.learned.clear(), db.settings.clear()]);
+  await db.transaction('rw', [db.tx, db.wallets, db.learned, db.settings, db.rules], async () => {
+    await Promise.all([db.tx.clear(), db.wallets.clear(), db.learned.clear(), db.settings.clear(), db.rules.clear()]);
     await db.tx.bulkPut(b.data.tx);
+    await db.rules.bulkPut(Array.isArray(b.data.rules) ? b.data.rules : []);
     await db.wallets.bulkPut(b.data.wallets);
     await db.learned.bulkPut(b.data.learned || []);
     await db.settings.bulkPut(Object.entries({ ...incoming, ...local, onboarded: true }).map(([key, value]) => ({ key, value })));
@@ -156,8 +184,8 @@ export async function importAll(b: Backup): Promise<void> {
   await load();
 }
 export async function wipe(): Promise<void> {
-  await db.transaction('rw', [db.tx, db.wallets, db.learned, db.settings], async () => {
-    await Promise.all([db.tx.clear(), db.wallets.clear(), db.learned.clear(), db.settings.clear()]);
+  await db.transaction('rw', [db.tx, db.wallets, db.learned, db.settings, db.rules], async () => {
+    await Promise.all([db.tx.clear(), db.wallets.clear(), db.learned.clear(), db.settings.clear(), db.rules.clear()]);
   });
   await load();
 }

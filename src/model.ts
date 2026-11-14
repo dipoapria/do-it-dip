@@ -14,6 +14,8 @@ export interface Tx {
   to: string | null;       // destination wallet for transfers
   note: string;
   book: string;            // 'pribadi' now; 'freelance' / 'usaha' / 'keluarga' later
+  /** Id of the recurring rule that created it, if any. */
+  rec?: string;
   createdAt: number;
   updatedAt: number;
 }
