@@ -23,8 +23,8 @@ export const inPeriod = (txs: Tx[], p: Period) => txs.filter((t) => t.date >= p.
 
 export function buildSheets(allTxs: Tx[], wallets: Wallet[], p: Period, balanceOf: (w: Wallet) => number, name = ''): SheetSpec[] {
   const txs = inPeriod(allTxs, p).slice().sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.createdAt - b.createdAt));
-  const wname = (id: string | null) => (id ? wallets.find((w) => w.id === id)?.name ?? 'Dompet terhapus' : '');
-  const catName = (t: Tx) => (t.type === 'tf' ? 'Transfer' : CATS[t.cat ?? '']?.n ?? 'Lainnya');
+  const wname = (id: string | null) => (!id ? '' : id.startsWith('debt:') ? 'Utang/piutang' : wallets.find((w) => w.id === id)?.name ?? 'Dompet terhapus');
+  const catName = (t: Tx) => (t.type === 'tf' ? (t.debt ? 'Utang/piutang' : 'Transfer') : CATS[t.cat ?? '']?.n ?? 'Lainnya');
   const inc = txs.filter((t) => t.type === 'in').reduce((s, t) => s + t.amount, 0);
   const out = txs.filter((t) => t.type === 'out').reduce((s, t) => s + t.amount, 0);
 

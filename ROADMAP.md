@@ -26,8 +26,8 @@ Perbarui file ini setiap ada fitur yang selesai, supaya tidak ada yang terlewat.
 |---|---|---|
 | Kelola dompet (tambah, ubah, saldo awal) | tambahan Tahap 1 | ✅ |
 | Anggaran per kategori + peringatan | rencana awal (ditunda atas permintaan) | ⏳ |
-| Target tabungan (dana darurat, liburan, DP) | rencana awal | ⏳ |
-| Utang & piutang | rencana awal | ⏳ |
+| **Target tabungan (dana darurat, liburan, DP)** | rencana awal | ✅ di Dompet: target + tenggat, sisihkan/ambil (uang tetap di dompet), saldo bebas, perlu disisihkan per bulan, perkiraan tercapai dari laju 3 bulan, saran dana darurat 6× pengeluaran |
+| **Utang & piutang** | rencana awal | ✅ di Dompet: pinjaman tunai (tidak dihitung pemasukan/pengeluaran), kredit/paylater (cicilan = pengeluaran Tagihan · Cicilan), piutang; catat pembayaran, sisa & progres, cicilan per bulan, jatuh tempo |
 | Buku terpisah Freelance & Usaha | rencana awal, mockup | 🟡 baru tampilan "aktifkan nanti" |
 | Buku bersama pasangan/keluarga | rencana awal (jangka panjang) | ⏳ |
 
@@ -40,8 +40,8 @@ Perbarui file ini setiap ada fitur yang selesai, supaya tidak ada yang terlewat.
 | Grafik harian, tren bulanan, catatan perencana keuangan | mockup v1 & v2 | ✅ |
 | Dashboard laptop + mode presentasi | permintaan | ✅ |
 | **Rekap kilat (cerita mingguan, transisi kubus)** | mockup v2 | ✅ 6 kartu dari data 7 hari terakhir, muncul di Beranda setelah ada ≥3 pengeluaran minggu ini |
-| Kekayaan bersih (aset − utang) | rencana awal | ⏳ (butuh fitur utang) |
-| Pemeriksaan rasio cicilan terhadap pendapatan | rencana awal | ⏳ (butuh fitur utang) |
+| **Kekayaan bersih (aset − utang)** | rencana awal | ✅ Dompet, catatan perencana di Rekap, dan laptop |
+| **Pemeriksaan rasio cicilan terhadap pendapatan** | rencana awal | ✅ catatan perencana di Rekap (batas aman 30%) |
 
 ## Keamanan & data
 
@@ -61,4 +61,5 @@ Perbarui file ini setiap ada fitur yang selesai, supaya tidak ada yang terlewat.
 - **Impor mutasi:** src/statement.ts mengenali 3 tata letak: tabel berjudul kolom (CSV/Excel), baris bertanggal dengan saldo berjalan (PDF bank umum), dan kartu per tanggal tanpa saldo (PDF PermataMobile X). Screenshot dibaca lewat OCR (src/ocr.ts) lalu masuk ke pembaca baris. Format .xls lama dan PDF hasil scan belum didukung.
 - **Cadangan online:** Supabase (gratis). Sekaligus menjadi dasar buku keluarga nanti.
 - **Transaksi berulang:** src/recurring.ts (jadwal murni + tes). Id transaksi tetap per aturan dan tanggal (`r-<aturan>-<tanggal>`), dan dijalankan setelah sinkron cloud, jadi dua perangkat tidak mencatat dua kali.
+- **Tabungan & utang:** src/plan.ts (hitungan murni + tes). Pinjaman tunai bergerak lewat dompet semu `debt:<id>` sebagai transfer, jadi saldo dompet benar tanpa mengubah pemasukan/pengeluaran.
 - **Excel:** src/excel.ts membangun isi lembar (dites di Node) lalu ditulis dengan write-excel-file (dimuat hanya saat ekspor).

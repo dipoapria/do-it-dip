@@ -16,6 +16,9 @@ export interface Tx {
   book: string;            // 'pribadi' now; 'freelance' / 'usaha' / 'keluarga' later
   /** Id of the recurring rule that created it, if any. */
   rec?: string;
+  /** Debt (utang/piutang) this transaction belongs to; debtInit marks the opening loan itself. */
+  debt?: string;
+  debtInit?: boolean;
   createdAt: number;
   updatedAt: number;
 }
@@ -60,7 +63,7 @@ export const CATS: Record<string, Category> = {
   makan: { n: 'Makan & Minum', c: '#FF7A45', i: 'utensils', subs: ['Makan siang', 'Kopi & minuman', 'Pesan antar', 'Jajan'] },
   transport: { n: 'Transportasi', c: '#3D8BFF', i: 'fuel', subs: ['Bensin', 'Parkir', 'Ojek online', 'Servis'] },
   belanja: { n: 'Belanja', c: '#E04BB5', i: 'shopping-bag', subs: ['Kebutuhan harian', 'Belanja online', 'Pakaian'] },
-  tagihan: { n: 'Tagihan', c: '#F0A010', i: 'zap', subs: ['Listrik', 'Internet & pulsa', 'Air'] },
+  tagihan: { n: 'Tagihan', c: '#F0A010', i: 'zap', subs: ['Listrik', 'Internet & pulsa', 'Air', 'Cicilan & paylater'] },
   hiburan: { n: 'Hiburan', c: '#8B5CF6', i: 'clapperboard', subs: ['Nonton', 'Langganan', 'Jalan-jalan'] },
   kesehatan: { n: 'Kesehatan', c: '#F43F5E', i: 'heart-pulse', subs: ['Obat', 'Dokter'] },
   pendidikan: { n: 'Pendidikan', c: '#14B8A6', i: 'graduation-cap', subs: ['Buku', 'Kursus'] },
@@ -89,6 +92,7 @@ export const KW: [RegExp, string, string][] = [
   [/\b(indomaret|alfamart|alfamidi|minimarket|supermarket|sabun|sampo|beras|minyak|galon|telur|gula|belanja|pasar)\b/, 'belanja', 'Kebutuhan harian'],
   [/\b(listrik|pln|token)\b/, 'tagihan', 'Listrik'],
   [/\b(wifi|internet|indihome|pulsa|kuota|paket data)\b/, 'tagihan', 'Internet & pulsa'],
+  [/\b(cicilan|angsuran|kredivo|akulaku|paylater|spaylater)\b/, 'tagihan', 'Cicilan & paylater'],
   [/\b(pdam|air)\b/, 'tagihan', 'Air'],
   [/\b(nonton|bioskop|film|xxi|cgv)\b/, 'hiburan', 'Nonton'],
   [/\b(netflix|spotify|youtube|langganan|disney|vidio)\b/, 'hiburan', 'Langganan'],

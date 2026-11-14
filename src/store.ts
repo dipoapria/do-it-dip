@@ -3,6 +3,7 @@
 import Dexie, { type Table } from 'dexie';
 import { DEFAULT_SETTINGS, type Settings, type Tx, type Wallet } from './model.ts';
 import type { Rule } from './recurring.ts';
+import type { Debt, Goal } from './plan.ts';
 
 interface Learned { word: string; cat: string; sub: string }
 interface SettingRow { key: string; value: unknown }
@@ -13,10 +14,13 @@ class DipDB extends Dexie {
   learned!: Table<Learned, string>;
   settings!: Table<SettingRow, string>;
   rules!: Table<Rule, string>;
+  goals!: Table<Goal, string>;
+  debts!: Table<Debt, string>;
   constructor() {
     super('do-it-dip');
     this.version(1).stores({ tx: 'id,date,book,wallet,type', wallets: 'id,order', learned: 'word', settings: 'key' });
     this.version(2).stores({ rules: 'id' });
+    this.version(3).stores({ goals: 'id', debts: 'id' });
   }
 }
 export const db = new DipDB();
@@ -27,6 +31,8 @@ export const data = {
   learned: {} as Record<string, { cat: string; sub: string }>,
   settings: { ...DEFAULT_SETTINGS } as Settings,
   rules: [] as Rule[],
+  goals: [] as Goal[],
+  debts: [] as Debt[],
 };
 
 const fail = (e: unknown) => {
@@ -44,10 +50,12 @@ export function onChange(fn: () => void): void { changeListener = fn; }
 function changed(): void { if (changeListener) changeListener(); }
 
 export async function load(): Promise<void> {
-  const [t, w, l, s, r] = await Promise.all([db.tx.toArray(), db.wallets.toArray(), db.learned.toArray(), db.settings.toArray(), db.rules.toArray()]);
+  const [t, w, l, s, r, g, d] = await Promise.all([db.tx.toArray(), db.wallets.toArray(), db.learned.toArray(), db.settings.toArray(), db.rules.toArray(), db.goals.toArray(), db.debts.toArray()]);
   data.txs = t;
   data.wallets = w;
   data.rules = r;
+  data.goals = g;
+  data.debts = d;
   data.learned = Object.fromEntries(l.map((x) => [x.word, { cat: x.cat, sub: x.sub }]));
   data.settings = { ...DEFAULT_SETTINGS, ...Object.fromEntries(s.map((x) => [x.key, x.value])) } as Settings;
 }
@@ -128,6 +136,32 @@ export function deleteRule(id: string): void {
 }
 export const newRuleId = () => uid().slice(0, 8);
 
+export function saveGoal(g: Goal): void {
+  const i = data.goals.findIndex((x) => x.id === g.id);
+  if (i >= 0) data.goals[i] = g; else data.goals.push(g);
+  db.goals.put(g).catch(fail);
+  changed();
+}
+export function deleteGoal(id: string): void {
+  data.goals = data.goals.filter((g) => g.id !== id);
+  db.goals.delete(id).catch(fail);
+  changed();
+}
+export function saveDebt(d: Debt): void {
+  const i = data.debts.findIndex((x) => x.id === d.id);
+  if (i >= 0) data.debts[i] = d; else data.debts.push(d);
+  db.debts.put(d).catch(fail);
+  changed();
+}
+/** Removes the debt and its linked transactions (the loan and its payments). */
+export function deleteDebt(id: string): void {
+  data.debts = data.debts.filter((d) => d.id !== id);
+  const gone = data.txs.filter((t) => t.debt === id).map((t) => t.id);
+  data.txs = data.txs.filter((t) => t.debt !== id);
+  db.transaction('rw', db.debts, db.tx, async () => { await db.debts.delete(id); await db.tx.bulkDelete(gone); }).catch(fail);
+  changed();
+}
+
 export function learn(word: string, cat: string, sub: string): void {
   data.learned[word] = { cat, sub };
   db.learned.put({ word, cat, sub }).catch(fail);
@@ -148,13 +182,13 @@ export function setSetting<K extends keyof Settings>(key: K, value: Settings[K])
 /* ---------- backup ---------- */
 export interface Backup {
   app: 'do-it-dip'; version: 1; exportedAt: string;
-  data: { tx: Tx[]; wallets: Wallet[]; learned: Learned[]; settings: Partial<Settings>; rules?: Rule[] };
+  data: { tx: Tx[]; wallets: Wallet[]; learned: Learned[]; settings: Partial<Settings>; rules?: Rule[]; goals?: Goal[]; debts?: Debt[] };
 }
 export function exportAll(): Backup {
   return {
     app: 'do-it-dip', version: 1, exportedAt: new Date().toISOString(),
     data: {
-      tx: data.txs, wallets: data.wallets, rules: data.rules,
+      tx: data.txs, wallets: data.wallets, rules: data.rules, goals: data.goals, debts: data.debts,
       learned: Object.entries(data.learned).map(([word, v]) => ({ word, ...v })),
       settings: Object.fromEntries(Object.entries(data.settings).filter(([k]) => !DEVICE_KEYS.includes(k as keyof Settings))) as Partial<Settings>,
     },
@@ -173,9 +207,11 @@ export async function importAll(b: Backup): Promise<void> {
   // Keep this device's own settings (PIN, Face ID, theme, cloud link); take everything else from the backup.
   const local = Object.fromEntries(DEVICE_KEYS.map((k) => [k, data.settings[k]]));
   const incoming = Object.fromEntries(Object.entries(b.data.settings || {}).filter(([k]) => !DEVICE_KEYS.includes(k as keyof Settings)));
-  await db.transaction('rw', [db.tx, db.wallets, db.learned, db.settings, db.rules], async () => {
-    await Promise.all([db.tx.clear(), db.wallets.clear(), db.learned.clear(), db.settings.clear(), db.rules.clear()]);
+  await db.transaction('rw', [db.tx, db.wallets, db.learned, db.settings, db.rules, db.goals, db.debts], async () => {
+    await Promise.all([db.tx.clear(), db.wallets.clear(), db.learned.clear(), db.settings.clear(), db.rules.clear(), db.goals.clear(), db.debts.clear()]);
     await db.tx.bulkPut(b.data.tx);
+    await db.goals.bulkPut(Array.isArray(b.data.goals) ? b.data.goals : []);
+    await db.debts.bulkPut(Array.isArray(b.data.debts) ? b.data.debts : []);
     await db.rules.bulkPut(Array.isArray(b.data.rules) ? b.data.rules : []);
     await db.wallets.bulkPut(b.data.wallets);
     await db.learned.bulkPut(b.data.learned || []);
@@ -184,8 +220,8 @@ export async function importAll(b: Backup): Promise<void> {
   await load();
 }
 export async function wipe(): Promise<void> {
-  await db.transaction('rw', [db.tx, db.wallets, db.learned, db.settings, db.rules], async () => {
-    await Promise.all([db.tx.clear(), db.wallets.clear(), db.learned.clear(), db.settings.clear(), db.rules.clear()]);
+  await db.transaction('rw', [db.tx, db.wallets, db.learned, db.settings, db.rules, db.goals, db.debts], async () => {
+    await Promise.all([db.tx.clear(), db.wallets.clear(), db.learned.clear(), db.settings.clear(), db.rules.clear(), db.goals.clear(), db.debts.clear()]);
   });
   await load();
 }
