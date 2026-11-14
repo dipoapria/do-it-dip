@@ -339,7 +339,7 @@ export function dateScores(lines: string[], today: string): Map<string, number> 
 /* ---------------- shops, payment ---------------- */
 
 /** Known chains: matched loosely because OCR mangles logos and headers (INDOMARCO, ALFARIA…). */
-const STORES: [RegExp, string, string, string][] = [
+export const STORES: [RegExp, string, string, string][] = [
   [/indomar(et|co)|indomaret/i, 'Indomaret', 'belanja', 'Kebutuhan harian'],
   [/alfamidi/i, 'Alfamidi', 'belanja', 'Kebutuhan harian'],
   [/alfamart|alfaria/i, 'Alfamart', 'belanja', 'Kebutuhan harian'],

@@ -210,3 +210,6 @@ body.veil::after{content:"";position:fixed;inset:0;z-index:1999;background:var(-
 .kv.tx-items>div{display:flex;flex-direction:column;gap:4px;min-width:0;flex:1;margin-left:16px}
 .kv.tx-items>div>div{display:flex;justify-content:space-between;gap:8px;font-size:12.5px}
 .kv.tx-items>div>div span{color:var(--ink-2);text-align:left}
+.st-via{display:inline-flex;align-items:center;gap:5px;margin-top:5px;font-size:11.5px;font-weight:700;color:var(--ink-3)}
+.st-via svg.lucide{width:13px;height:13px;color:var(--brand)}
+#rcSeg{margin-top:2px}

@@ -18,6 +18,7 @@ import { initLock, lockNow, setupPin, verifyPin, pinOn, enableBio, bioAvailable 
 import { initStories, openStories, storiesReady } from './stories.ts';
 import * as cloud from './cloud.ts';
 import { scanWithTesseract } from './scan.ts';
+import { readWithAI } from './ai-receipt.ts';
 import { extract, NeedPassword } from './filetext.ts';
 import { guessRow, linesToStatement, rowsToStatement } from './statement.ts';
 import { KW } from './model.ts';
@@ -410,6 +411,9 @@ function vLainnya() {
     <div class="set-row"><span class="ic" style="--c:#F0A010"><i data-lucide="hourglass"></i></span><div class="t"><b>Kunci otomatis</b><small>Setelah aplikasi ditinggal ke latar belakang</small></div></div>
     <div class="seg" id="lockSeg"><span class="pill"></span>${[[0, 'Langsung'], [60, '1 menit'], [300, '5 menit']].map(([v, l]) => `<button class="${set.lockAfter === v ? 'on' : ''}" data-a="lockAfter" data-v="${v}">${l}</button>`).join('')}</div>` : ''}
     <p class="about" style="margin:10px 0 0">Kunci PIN mencegah orang lain membuka Do it Dip di perangkat ini. Data tetap tersimpan di perangkat dan tidak dienkripsi, jadi tetap simpan cadangan di tempat aman.</p></div>
+  <div class="card"><h4>Baca struk</h4>
+    <div class="seg" id="rcSeg"><span class="pill"></span>${[['ai', 'AI (Gemini)', 'sparkles'], ['ocr', 'OCR di HP', 'scan-line']].map(([k, l, i]) => `<button class="${(set.receiptMode || 'ai') === k ? 'on' : ''}" data-a="receiptMode" data-v="${k}"><i data-lucide="${i}"></i>${l}</button>`).join('')}</div>
+    <p class="about" style="margin:10px 0 0">${(set.receiptMode || 'ai') === 'ai' ? `Foto struk dibaca Gemini lewat cadangan online${cloudOn() ? '' : ' <b>(sambungkan cadangan online dulu)</b>'}; gratis sampai ±500 struk per hari. Saat offline atau AI tidak tersedia, otomatis memakai OCR di HP.` : 'Foto struk dibaca langsung di HP tanpa internet (setelah pemakaian pertama). Lebih lambat dan kurang teliti untuk foto yang sulit.'}</p></div>
   <div class="card"><h4>Tampilan</h4>
     <div class="seg" id="themeSeg"><span class="pill"></span>${[['system', 'Sistem', 'monitor-smartphone'], ['light', 'Terang', 'sun'], ['dark', 'Gelap', 'moon']].map(([k, l, i]) => `<button class="${set.theme === k ? 'on' : ''}" data-a="theme" data-t="${k}"><i data-lucide="${i}"></i>${l}</button>`).join('')}</div></div>
   <div class="card"><h4>Kata kunci yang dipelajari</h4>
@@ -432,16 +436,18 @@ function renderPanel(i, arg) {
     if (!store.data.settings.lpLearned) { const t = p.querySelector('.list .tx[data-id]'); if (t) t.insertAdjacentHTML('beforeend', '<span class="lp-hint"><i data-lucide="pointer"></i>Tahan</span>'); }
   }
   if (i === 2) { layoutStack(); initCards(); bindStack(); }
-  if (i === 3) { placePill($('themeSeg')); placePill($('lockSeg')); }
+  if (i === 3) { placePill($('themeSeg')); placePill($('lockSeg')); placePill($('rcSeg')); }
 }
 function renderAll() { checkBudgets(); for (let i = 0; i < 4; i++) renderPanel(i); icons(); }
 function refresh() { S.dispTotal = heroVal(); renderAll(); setOdo($('odo'), S.dispTotal, true); if (S.drill) rerenderDrill(); renderDesk(); }
-function onPhoneShown() { tabCenters = []; refresh(); requestAnimationFrame(() => { measureTabs(); moveInd(S.pos); placePill($('themeSeg')); }); }
+function onPhoneShown() { tabCenters = []; refresh(); requestAnimationFrame(() => { measureTabs(); moveInd(S.pos); placePill($('themeSeg')); placePill($('rcSeg')); }); }
+/** AI receipt reading is used when chosen, online and signed in to the online backup (the function needs the login). */
+const aiReady = () => store.data.settings.receiptMode !== 'ocr' && navigator.onLine && !!store.data.settings.cloudEmail;
 function playPanel(i) {
   const p = PANELS[i]; p.classList.remove('pre'); p.classList.remove('play'); void p.offsetWidth; p.classList.add('play');
   p.querySelectorAll('[data-count]').forEach(countUp);
   if (!reduced()) p.querySelectorAll('.seg[data-len]').forEach((s, j) => { const len = Number(s.dataset.len), C = Number(s.dataset.c); s.animate([{ strokeDasharray: `0 ${C}` }, { strokeDasharray: `${len} ${C}` }], { duration: 800, delay: 150 + j * 80, easing: 'cubic-bezier(.3,.9,.3,1)', fill: 'backwards' }); });
-  if (i === 3) { placePill($('themeSeg')); placePill($('lockSeg')); }
+  if (i === 3) { placePill($('themeSeg')); placePill($('lockSeg')); placePill($('rcSeg')); }
 }
 let tabCenters = [];
 function measureTabs() { const tb = $('tabbar'), r = tb.getBoundingClientRect(); tabCenters = [...tb.querySelectorAll('.tab')].map((b) => { const q = b.getBoundingClientRect(); return q.left + q.width / 2 - r.left; }); }
@@ -643,7 +649,7 @@ const PAY_LABEL = { cash: 'tunai', card: 'kartu/debit', gopay: 'GoPay', ovo: 'OV
 function mStruk() {
   const s = S.struk;
   if (s.phase === 'idle') return `<div class="drop"><span class="ic" style="--c:#E04BB5"><i data-lucide="receipt"></i></span><b>Foto struk belanja</b>
-    <small>Produk, harga, dan total dibaca otomatis langsung di HP ini. Foto dari atas, terang, seluruh struk masuk bingkai, dan jari tidak menutupi tulisan.</small>
+    <small>${aiReady() ? 'Produk, harga, dan total dibaca oleh AI (Gemini).' : 'Produk, harga, dan total dibaca langsung di HP ini (OCR).'} Foto dari atas, terang, seluruh struk masuk bingkai, dan jari tidak menutupi tulisan.</small>
     <div class="btn-row" style="width:100%"><label class="btn2 primaryish" for="strukCam"><i data-lucide="camera"></i>Foto struk</label><label class="btn2" for="strukPick"><i data-lucide="image-plus"></i>Dari galeri</label></div>
     <input type="file" id="strukCam" accept="image/*" capture="environment" hidden><input type="file" id="strukPick" accept="image/*" hidden>
     <small class="muted">Pemakaian pertama mengunduh pembaca teks ±5 MB (perlu internet). Setelah itu jauh lebih cepat.</small></div>`;
@@ -658,7 +664,7 @@ function mStruk() {
     : r.confidence === 'medium'
       ? `<div class="st-check warn"><i data-lucide="info"></i><span><b>Total terbaca, tapi ada produk yang kurang jelas.</b> Periksa daftar di bawah, ubah atau tambahkan yang terlewat.</span></div>`
       : `<div class="st-check bad"><i data-lucide="triangle-alert"></i><span><b>Struk kurang jelas terbaca.</b> Periksa angkanya, atau foto ulang lebih dekat, dari atas, di tempat terang, tanpa jari menutupi tulisan.</span></div>`;
-  return `<div class="st-done"><div class="st-img small"><img src="${s.img}" alt="Foto struk"></div><div><span class="type out">Pengeluaran</span><p class="muted" style="margin:6px 0 0">${f.items.length} produk terbaca</p></div></div>
+  return `<div class="st-done"><div class="st-img small"><img src="${s.img}" alt="Foto struk"></div><div><span class="type out">Pengeluaran</span><p class="muted" style="margin:6px 0 0">${f.items.length} produk terbaca</p><small class="st-via">${s.via === 'ai' ? `<i data-lucide="sparkles"></i>Dibaca AI · ${esc((r.model || 'Gemini').replace('gemini-', 'Gemini ').replace(/-/g, ' '))}` : `<i data-lucide="scan-line"></i>Dibaca OCR di HP${s.why ? ` · ${esc(s.why)}` : ''}`}</small></div></div>
   ${banner}
   <span class="lab">Produk</span>
   <div class="st-items">${f.items.map((it, i) => `<div class="st-item"><input class="field" id="sti-n-${i}" value="${esc(it.name)}" placeholder="Nama produk" autocomplete="off" aria-label="Nama produk ${i + 1}"><input class="field" id="sti-a-${i}" inputmode="numeric" value="${it.amount ? fmtN(it.amount) : ''}" placeholder="Rp0" autocomplete="off" aria-label="Harga produk ${i + 1}"><button class="icon-btn" data-a="stiDel" data-i="${i}" aria-label="Hapus produk ${i + 1}"><i data-lucide="x"></i></button></div>`).join('')}
@@ -684,12 +690,19 @@ async function startStruk(file) {
   S.struk = { phase: 'reading', img: URL.createObjectURL(file), progress: 0, label: 'Menyiapkan foto…' }; rerenderMode();
   const mine = S.struk;
   try {
-    const out = await scanWithTesseract(file, T(), (p, l) => { mine.progress = p; mine.label = l; const b = $('stProg'), lb = $('stLbl'); if (b) b.style.width = Math.round(p * 100) + '%'; if (lb) lb.textContent = l; });
+    const prog = (p, l) => { mine.progress = p; mine.label = l; const b = $('stProg'), lb = $('stLbl'); if (b) b.style.width = Math.round(p * 100) + '%'; if (lb) lb.textContent = l; };
+    let res = null, via = 'ocr', why = '';
+    if (aiReady()) {
+      try { res = await readWithAI(file, T(), prog, cloud.readReceipt); via = 'ai'; }
+      catch (e) { why = cloud.cloudError(e); console.error(e); }
+    } else if (store.data.settings.receiptMode !== 'ocr') why = !navigator.onLine ? 'Sedang offline' : 'Cadangan online belum tersambung';
+    if (!res) { if (why) prog(0.05, why + ' — memakai OCR di HP…'); res = (await scanWithTesseract(file, T(), prog)).result; }
     if (S.struk !== mine) return;
-    const res = out.result, g = receiptGuess(res);
+    mine.via = via; mine.why = why;
+    const g = receiptGuess(res);
     if (!res.lines.length) throw new Error('empty');
     const items = res.items.map((it) => ({ name: niceName(it.name), amount: it.amount, qty: it.qty }));
-    S.struk = { ...mine, phase: 'done', res, form: { amount: res.total || stSum({ items }) || 0, items, note: receiptNote(items), noteEdited: false, date: res.date || T(), cat: g.cat, sub: g.sub, wallet: receiptWallet(res.pay) } };
+    S.struk = { ...mine, phase: 'done', via, why, res, form: { amount: res.total || stSum({ items }) || 0, items, note: receiptNote(items), noteEdited: false, date: res.date || T(), cat: g.cat, sub: g.sub, wallet: receiptWallet(res.pay) } };
   } catch (e) {
     if (S.struk !== mine) return;
     S.struk = { ...mine, phase: 'error', err: !navigator.onLine ? 'Pemakaian pertama butuh internet untuk mengunduh pembaca teks. Sambungkan internet lalu coba lagi.' : 'Teksnya tidak terbaca. Coba foto lebih dekat, lurus, dan di tempat terang.' };
@@ -1594,6 +1607,7 @@ function onClick(e) {
       const id = d.id; sConfirm('Hapus dompet?', `${esc(W(id).name)} akan dihapus dari daftar dompet.`, 'Hapus', () => { store.deleteWallet(id); S.wsel = null; refresh(); toast('Dompet dihapus'); }); break;
     }
     case 'theme': setTheme(d.t, el); break;
+    case 'receiptMode': store.setSetting('receiptMode', d.v); { const sc = PANELS[3].scrollTop; renderPanel(3); icons(); PANELS[3].scrollTop = sc; later(30, () => placePill($('rcSeg'))); } break;
     case 'rename': sRename(); break;
     case 'renameSave': { const v = $('renameIn').value.trim(); store.setSetting('name', v); closeSheet(); refresh(); toast('Nama disimpan'); break; }
     case 'unlearn': store.unlearn(d.w); renderPanel(3); icons(); toast(`“${d.w}” dilupakan`); break;

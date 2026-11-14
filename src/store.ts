@@ -42,7 +42,7 @@ const fail = (e: unknown) => {
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
 
 /** Settings that belong to this device only: never put in backups, never overwritten by a restore. */
-export const DEVICE_KEYS: (keyof Settings)[] = ['pinHash', 'pinSalt', 'pinLen', 'bioId', 'lockAfter', 'theme', 'cloudEmail', 'cloudLastSync', 'cloudDirty', 'lpLearned', 'curBook'];
+export const DEVICE_KEYS: (keyof Settings)[] = ['pinHash', 'pinSalt', 'pinLen', 'bioId', 'lockAfter', 'theme', 'cloudEmail', 'cloudLastSync', 'cloudDirty', 'lpLearned', 'curBook', 'receiptMode'];
 
 /* ---------- books: Pribadi / Freelance / Usaha ---------- */
 export const curBook = (): string => (data.settings.books || ['pribadi']).includes(data.settings.curBook) ? data.settings.curBook : 'pribadi';
