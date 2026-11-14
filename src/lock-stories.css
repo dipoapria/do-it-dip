@@ -184,3 +184,8 @@ body.veil::after{content:"";position:fixed;inset:0;z-index:1999;background:var(-
 .pillbtn[style*="--c"] svg.lucide:first-child{color:var(--c)}
 .book{position:relative}
 .book.on{box-shadow:inset 0 0 0 2px var(--brand)}
+
+/* wallet card held (page scrolled): it lifts to show it is ready to be pulled down for a peek */
+.wcard{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none;transition:transform .65s var(--spring),opacity .45s,scale .5s cubic-bezier(.25,.8,.3,1),box-shadow .5s ease;transition-delay:calc(var(--i)*30ms),calc(var(--i)*30ms),0s,0s}
+.wcard.armed{scale:1.015;box-shadow:0 22px 40px -18px rgba(0,0,0,.55);z-index:5}
+.wcard:focus:not(:focus-visible),.wcard.armed:focus{outline:none}

@@ -297,7 +297,7 @@ function vDrill() {
   </div>`;
 }
 
-const STACK_GAP = 64, OPEN_GAP = 196;
+const STACK_GAP = 64, OPEN_GAP = 196, ARM_GAP = 12;
 function vDompet() {
   const ws = WL(), tot = totalBalance();
   const dots = () => Array.from({ length: 7 }, (_, j) => `<span style="--d:${j};--sx:${Math.round(Math.random() * 70 - 35)}px;--sy:${Math.round(-18 - Math.random() * 40)}px"></span>`).join('');
@@ -359,14 +359,27 @@ function peekLayout(i, d) {
 function bindStack() {
   const st = $('wstack'); if (!st) return;
   drag(st, {
-    start(s) { cancelAnimationFrame(stackRaf); if (S.wsel) return false; const c = s.target.closest('.wcard'); if (!c) return false; s.k = c.dataset.id; s.i = [...st.children].indexOf(c); s.sc = PANELS[2].scrollTop; },
+    start(s) {
+      cancelAnimationFrame(stackRaf); if (S.wsel) return false; const c = s.target.closest('.wcard'); if (!c) return false;
+      s.k = c.dataset.id; s.i = [...st.children].indexOf(c); s.sc = PANELS[2].scrollTop; s.c = c;
+      // At the top of the page a downward drag peeks right away. Once scrolled, a plain drag scrolls the page;
+      // hold the card briefly (it lifts) and then drag down to peek.
+      s.atTop = s.sc <= 4;
+      if (!s.atTop) s.holdT = setTimeout(() => {
+        if (s.lock) return;
+        s.armed = true; c.classList.add('armed'); c.blur(); navigator.vibrate?.(8);
+        peekLayout(s.i, ARM_GAP); [...st.children].forEach((x) => (x.style.transition = 'transform .5s cubic-bezier(.25,.8,.3,1)'));
+      }, 300);
+    },
     move(s, e) {
-      if (!s.lock) { const ax = Math.abs(s.dx), ay = Math.abs(s.dy); if (ax < 6 && ay < 6) return; s.lock = ax > ay ? 'h' : s.dy > 0 ? 'peek' : 'scroll'; }
+      if (!s.lock) { const ax = Math.abs(s.dx), ay = Math.abs(s.dy); if (ax < 6 && ay < 6) return; clearTimeout(s.holdT); s.lock = ax > ay ? 'h' : s.dy > 0 && (s.atTop || s.armed) ? 'peek' : 'scroll'; if (s.lock === 'peek') s.c.blur(); if (s.armed && s.lock !== 'peek') { s.c.classList.remove('armed'); layoutStack(); } }
       if (s.lock === 'scroll') { if (e.cancelable) e.preventDefault(); PANELS[2].scrollTop = s.sc - s.dy; }
-      if (s.lock === 'peek') { if (e.cancelable) e.preventDefault(); const d = rubber(Math.max(0, s.dy), 200); peekLayout(s.i, d); if (d > 60 && !s.shown) { s.shown = true; S.peekDrag = s.k; showCard(s.k); } }
+      if (s.lock === 'peek') { if (e.cancelable) e.preventDefault(); const d = (s.armed ? ARM_GAP : 0) + rubber(Math.max(0, s.dy), 200); peekLayout(s.i, d); if (d > 60 && !s.shown) { s.shown = true; S.peekDrag = s.k; showCard(s.k); } }
     },
     end(s) {
-      if (s.lock === 'peek' || s.lock === 'scroll') markDragged();
+      clearTimeout(s.holdT); s.c?.classList.remove('armed');
+      if (s.armed && !s.lock) { [...st.children].forEach((c) => (c.style.transition = '')); layoutStack(); }
+      if (s.lock === 'peek' || s.lock === 'scroll' || s.armed) markDragged();
       if (s.lock === 'peek') { S.peekDrag = null; [...st.children].forEach((c) => (c.style.transition = '')); layoutStack(); if (s.shown) hideCard(s.k, 120); }
       if (s.lock === 'scroll') { let v = -s.vy * 16; const p = PANELS[2]; const step = () => { p.scrollTop += v; v *= 0.94; if (Math.abs(v) > 0.4) stackRaf = requestAnimationFrame(step); }; stackRaf = requestAnimationFrame(step); }
     },
@@ -1759,6 +1772,7 @@ const SHELL = `
     <section class="panel pre" id="p2" aria-label="Dompet"></section>
     <section class="panel pre" id="p3" aria-label="Lainnya"></section>
   </div>
+  <div class="sbar-fade" aria-hidden="true"></div>
   <div class="pull" id="pull" aria-hidden="true"><span class="pb"><i data-lucide="sparkles"></i></span><span id="pullTxt">Tarik untuk mencatat</span></div>
   <div class="page" id="drill" hidden></div>
   <nav class="tabbar" id="tabbar" aria-label="Navigasi utama">

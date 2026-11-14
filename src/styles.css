@@ -40,7 +40,10 @@ svg.lucide{width:18px;height:18px;flex:none}
 .panel{position:absolute;inset:0;overflow-y:auto;overflow-x:hidden;background:var(--bg);will-change:transform;transform-origin:50% 45%;scrollbar-width:none;overscroll-behavior:contain;touch-action:pan-y}
 .panel::-webkit-scrollbar{display:none}
 .panel.peek{box-shadow:-24px 0 60px -10px rgba(0,0,0,.45)}
-.inner{padding:calc(var(--st) + 14px) 18px calc(var(--sb) + 124px)}
+.inner{padding:calc(var(--st) + 26px) 18px calc(var(--sb) + 124px)}
+/* soft fade under the status bar, so scrolled content slides away instead of being cut by the clock */
+.sbar-fade{position:absolute;top:0;left:0;right:0;z-index:3;height:calc(var(--st) + 14px);pointer-events:none;background:linear-gradient(var(--bg) 0%,var(--bg) calc(100% - 22px),color-mix(in srgb,var(--bg) 0%,transparent))}
+body.desk .sbar-fade{display:none}
 #app.dragging *{cursor:grabbing}
 
 /* ---------- shared ---------- */
