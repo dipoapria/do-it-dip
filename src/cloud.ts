@@ -108,3 +108,11 @@ export async function readReceipt(image: string, mime: string, model?: string): 
   }
   return data as { model: string; receipt: unknown; usage: unknown };
 }
+
+/** Latest prices of Indonesian shares by ticker ("BBCA" → 5600), through the stock-price Edge Function. */
+export async function stockPrices(codes: string[]): Promise<Record<string, number>> {
+  const c = await sb();
+  const { data, error } = await c.functions.invoke('stock-price', { body: { codes } });
+  if (error) throw error;
+  return ((data as { prices?: Record<string, number> })?.prices) ?? {};
+}

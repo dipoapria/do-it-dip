@@ -19,6 +19,10 @@ export interface Tx {
   /** Debt (utang/piutang) this transaction belongs to; debtInit marks the opening loan itself. */
   debt?: string;
   debtInit?: boolean;
+  /** Investment asset this transaction belongs to, with the units bought/sold and the price per unit. */
+  inv?: string;
+  units?: number;
+  unitPrice?: number;
   /** Products read from a receipt photo (name, line price, quantity). */
   items?: { name: string; amount: number; qty?: number }[];
   createdAt: number;
@@ -64,9 +68,11 @@ export interface Settings {
   curBook: string;
   /** How receipt photos are read on this device: Gemini via the cloud, or on-device OCR. */
   receiptMode: 'ai' | 'ocr';
+  /** Investment types shown in the portfolio (others are hidden, not deleted). */
+  investTypes: string[];
 }
 
-export const DEFAULT_SETTINGS: Settings = { name: '', onboarded: false, theme: 'system', lpLearned: false, pinHash: '', pinSalt: '', pinLen: 4, bioId: '', lockAfter: 60, cloudEmail: '', cloudLastSync: '', cloudDirty: false, budgets: {}, bookBudgets: {}, books: ['pribadi'], curBook: 'pribadi', receiptMode: 'ai' };
+export const DEFAULT_SETTINGS: Settings = { name: '', onboarded: false, theme: 'system', lpLearned: false, pinHash: '', pinSalt: '', pinLen: 4, bioId: '', lockAfter: 60, cloudEmail: '', cloudLastSync: '', cloudDirty: false, budgets: {}, bookBudgets: {}, books: ['pribadi'], curBook: 'pribadi', receiptMode: 'ai', investTypes: ['saham', 'reksadana', 'obligasi', 'emas', 'deposito', 'kripto'] };
 
 export interface Category { n: string; c: string; i: string; subs: string[]; inc?: boolean; /** only offered in this book */ book?: string }
 
@@ -82,7 +88,7 @@ export const CATS: Record<string, Category> = {
   lain: { n: 'Lainnya', c: '#94A3B8', i: 'layout-grid', subs: ['Lainnya', 'Biaya bank'] },
   gaji: { n: 'Gaji', c: '#10B981', i: 'briefcase', subs: ['Gaji bulanan'], inc: true },
   bonus: { n: 'Bonus & Honor', c: '#F59E0B', i: 'gift', subs: ['Honor', 'Bonus'], inc: true },
-  masuk_lain: { n: 'Pemasukan lain', c: '#06B6D4', i: 'coins', subs: ['Cashback', 'Bunga', 'Lainnya'], inc: true },
+  masuk_lain: { n: 'Pemasukan lain', c: '#06B6D4', i: 'coins', subs: ['Cashback', 'Bunga', 'Dividen & kupon', 'Lainnya'], inc: true },
   // Freelance book
   proyek: { n: 'Honor proyek', c: '#0EA5E9', i: 'briefcase-business', subs: ['Proyek', 'DP proyek', 'Pelunasan'], inc: true, book: 'freelance' },
   alat: { n: 'Alat & software', c: '#6366F1', i: 'laptop', subs: ['Software & langganan', 'Perangkat', 'Internet kerja', 'Pajak & biaya'], book: 'freelance' },

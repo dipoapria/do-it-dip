@@ -31,6 +31,7 @@ Perbarui file ini setiap ada fitur yang selesai, supaya tidak ada yang terlewat.
 | **Utang & piutang** | rencana awal | ✅ di Dompet: pinjaman tunai (tidak dihitung pemasukan/pengeluaran), kredit/paylater (cicilan = pengeluaran Tagihan · Cicilan), piutang; catat pembayaran, sisa & progres, cicilan per bulan, jatuh tempo |
 | **Buku terpisah Freelance & Usaha** | rencana awal, mockup | ✅ aktifkan dari pemilih buku atau Dompet; catatan, rekap, anggaran, cerita mingguan, Excel, dan laptop per buku; kategori khusus (Honor proyek, Alat & software / Penjualan, Bahan & stok, Operasional) + kata kunci kalimatnya; dompet dipakai bersama atau khusus satu buku; Beranda buku menampilkan laba bersih bulan ini dengan warna khas |
 | Buku bersama pasangan/keluarga | rencana awal (jangka panjang) | ⏳ |
+| **Investasi (saham, reksadana, obligasi/SBN, emas, deposito, kripto)** | permintaan | ✅ di Dompet: aset per jenis dengan tombol tampil/sembunyi; beli/jual per transaksi (lot untuk saham, harga rata-rata, untung/rugi berjalan dan dari penjualan), dividen/kupon/bunga sebagai pemasukan; beli tidak dihitung pengeluaran (dana pindah dari dompet), kepemilikan lama bisa dicatat tanpa mengurangi dompet; harga saham otomatis lewat Edge Function `stock-price` (sumber tidak resmi, cadangan isi manual); masuk kekayaan bersih |
 
 ## Melihat rekap
 
@@ -66,4 +67,5 @@ Perbarui file ini setiap ada fitur yang selesai, supaya tidak ada yang terlewat.
 - **Anggaran:** src/budget.ts (hitungan murni + tes), disimpan di pengaturan `budgets`.
 - **Buku:** `Tx.book` dan `Wallet.book` (`pribadi` = dompet bersama). store.bookTxs()/bookWallets() menyaring tampilan; saldo dompet selalu dihitung dari semua buku. Buku terpilih disimpan per perangkat (`curBook`), daftar buku aktif ikut sinkron.
 - **Struk:** src/scan.ts (alur), src/imgproc.ts (olah gambar, dites), src/receipt.ts (baca produk/total, dites). Lab pengukur di tools/ocr-lab (jalankan `npx vite --port 5199`, buka /tools/ocr-lab/?n=2&pipe=new): struk tiruan 8 jenis × 4 tingkat kesulitan dengan kunci jawaban.
+- **Investasi:** src/invest.ts (hitungan murni + tes). Beli/jual = transfer lewat dompet semu `inv:<id>` (`inv-open` untuk kepemilikan lama); aset di tabel `assets` (Dexie v4), ikut cadangan.
 - **Excel:** src/excel.ts membangun isi lembar (dites di Node) lalu ditulis dengan write-excel-file (dimuat hanya saat ekspor).

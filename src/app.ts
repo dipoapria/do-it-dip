@@ -9,7 +9,7 @@ import {
   CloudUpload, Download, Upload, MonitorSmartphone, Sun, Moon, User, Laptop, Store, Users, Layers, Pointer, Pencil, Palette,
   Presentation, Minimize, Flame, Clapperboard, Camera, ImagePlus, FileSpreadsheet, ScanLine, Receipt, KeyRound, TriangleAlert, RotateCcw,
   ScanFace, PartyPopper, Play, Hourglass, CloudDownload, RefreshCw, LogOut, Mail, LogIn, Repeat, FileDown, SkipForward, CalendarClock,
-  HandCoins, Handshake, Target, Plane, Car, Bike, Heart, Baby, Gem, BriefcaseBusiness, Package, Wrench,
+  HandCoins, Handshake, Target, Plane, Car, Bike, Heart, Baby, Gem, BriefcaseBusiness, Package, Wrench, ChartCandlestick, Archive,
 } from 'lucide';
 import { allocated, debtDone, debtLeft, debtPaid, etaMonths, goalLeft, goalPct, goalSaved, monthlyNeed, netWorth, openingTx, paymentTx, isDebtWallet, monthlyInstalments, dsr } from './plan.ts';
 import { budgetSummary, levelOf, newAlerts, suggestBudgets } from './budget.ts';
@@ -20,6 +20,7 @@ import * as cloud from './cloud.ts';
 import { scanWithTesseract } from './scan.ts';
 import { readWithAI } from './ai-receipt.ts';
 import { productLabel, receiptTitle } from './names.ts';
+import { ALL_TYPES, ASSET_TYPES, buyTx, incomeTx, isInvWallet, parseDec, portfolio, position, sellTx, unitsLabel } from './invest.ts';
 import { extract, NeedPassword } from './filetext.ts';
 import { guessRow, linesToStatement, rowsToStatement } from './statement.ts';
 import { KW } from './model.ts';
@@ -38,7 +39,7 @@ const ICONS = {
   MonitorSmartphone, Sun, Moon, User, Laptop, Store, Users, Layers, Pointer, Pencil, Palette, Presentation, Minimize, Flame, Clapperboard,
   Camera, ImagePlus, FileSpreadsheet, ScanLine, Receipt, KeyRound, TriangleAlert, RotateCcw,
   ScanFace, PartyPopper, Play, Hourglass, CloudDownload, RefreshCw, LogOut, Mail, LogIn, Repeat, FileDown, SkipForward, CalendarClock,
-  HandCoins, Handshake, Target, Plane, Car, Bike, Heart, Baby, Gem, BriefcaseBusiness, Package, Wrench,
+  HandCoins, Handshake, Target, Plane, Car, Bike, Heart, Baby, Gem, BriefcaseBusiness, Package, Wrench, ChartCandlestick, Archive,
 };
 function icons() { createIcons({ icons: ICONS, attrs: { 'stroke-width': 2.2 } }); }
 
@@ -68,12 +69,14 @@ const INC = () => catsFor(BK(), true);
 /** Hero number: total balance in Pribadi; this month's profit in Freelance/Usaha (their money often sits in shared wallets). */
 function heroVal() { if (isPersonal()) return totalBalance(); const st = stats(TX(), T().slice(0, 7)); return Math.abs(st.inc - st.out); }
 const GHOST = (id) => ({ id, name: 'Dompet terhapus', short: '?', group: 'Tunai', color: '#94A3B8', init: 0, order: 99, aliases: [], book: 'pribadi' });
-const W = (id) => store.data.wallets.find((w) => w.id === id) || (isDebtWallet(id) ? debtPseudo(id) : GHOST(id));
+const W = (id) => store.data.wallets.find((w) => w.id === id) || (isDebtWallet(id) ? debtPseudo(id) : isInvWallet(id) ? invPseudo(id) : GHOST(id));
+function invPseudo(id) { const a = store.data.assets.find((x) => 'inv:' + x.id === id); return { ...GHOST(id), name: a ? a.name : id === 'inv-open' ? 'Sudah dimiliki' : 'Aset (dihapus)', color: a ? ASSET_TYPES[a.type].c : '#94A3B8' }; }
 function debtPseudo(id) { const d = store.data.debts.find((x) => 'debt:' + x.id === id); return { ...GHOST(id), name: d ? (d.kind === 'utang' ? 'Pinjaman ' : 'Dipinjam ') + d.name : 'Utang (dihapus)', color: d ? DEBT_C[d.kind] : '#94A3B8' }; }
 const bal = (w) => balance(store.data.txs, typeof w === 'string' ? W(w) : w);
 const totalBalance = () => WL().reduce((s, w) => s + bal(w), 0);
 const sorted = (list = TX()) => list.slice().sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b.createdAt - a.createdAt));
-const catOf = (t) => (t.type === 'tf' ? (t.debt ? debtCat(t) : { n: 'Transfer', c: '#3D7BFF', i: 'arrow-left-right' }) : CATS[t.cat] || CATS.lain);
+const catOf = (t) => (t.type === 'tf' ? (t.debt ? debtCat(t) : t.inv ? invCat(t) : { n: 'Transfer', c: '#3D7BFF', i: 'arrow-left-right' }) : CATS[t.cat] || CATS.lain);
+function invCat(t) { const a = store.data.assets.find((x) => x.id === t.inv), k = a ? ASSET_TYPES[a.type] : null; return { n: 'Investasi', c: k ? k.c : '#2F7CF6', i: k ? k.i : 'chart-candlestick' }; }
 function debtCat(t) { const k = store.data.debts.find((x) => x.id === t.debt)?.kind || 'utang'; return { n: k === 'utang' ? 'Utang' : 'Piutang', c: DEBT_C[k], i: k === 'utang' ? 'hand-coins' : 'handshake' }; }
 const money = (n) => `<span class="m">${rp(n)}</span>`;
 const short = (n) => `<span class="m">${shortTxt(n)}</span>`;
@@ -238,9 +241,9 @@ function insights(mk, st, months) {
       ? { c: '#F0A010', i: 'hand-coins', t: `Cicilan ${rp(inst)}/bulan`, d: 'Belum ada pemasukan di bulan ini untuk dibandingkan. Patokan aman: total cicilan maksimal 30% dari pemasukan.' }
       : { c: r <= 0.3 ? '#10B981' : r <= 0.4 ? '#F0A010' : '#F43F5E', i: 'hand-coins', t: `Cicilan ${pct(r)} dari pemasukan`, d: r <= 0.3 ? `${rp(inst)}/bulan, masih di bawah batas aman 30%. Hindari menambah cicilan baru sampai ada yang lunas.` : `${rp(inst)}/bulan, di atas batas aman 30%. Dahulukan melunasi utang berbunga tertinggi dan tunda cicilan baru.`, prog: Math.min(1, r / 0.5) });
   }
-  if (isPersonal() && store.data.debts.length) {
-    const nw = netWorth(totalBalance(), store.data.debts, TX());
-    out.push({ c: nw.net >= 0 ? '#13A894' : '#F43F5E', i: 'landmark', t: `Kekayaan bersih ${rp(nw.net)}`, d: `Saldo dompet ${rp(nw.cash)} + piutang ${rp(nw.receivable)} − utang ${rp(nw.owed)}.` });
+  if (isPersonal() && (store.data.debts.length || store.data.assets.length)) {
+    const nw = netWorth(totalBalance(), store.data.debts, TX(), invTotal().value);
+    out.push({ c: nw.net >= 0 ? '#13A894' : '#F43F5E', i: 'landmark', t: `Kekayaan bersih ${rp(nw.net)}`, d: `Saldo dompet ${rp(nw.cash)}${nw.invest ? ` + investasi ${rp(nw.invest)}` : ''} + piutang ${rp(nw.receivable)} − utang ${rp(nw.owed)}.` });
   }
   if (!out.length) return '<div class="empty">Catatan muncul setelah ada pemasukan dan pengeluaran tercatat.</div>';
   return out.map((x) => `<div class="insight"><span class="ic" style="--c:${x.c}"><i data-lucide="${x.i}"></i></span><div style="flex:1;min-width:0"><b>${x.t}</b><p>${x.d}</p>${x.prog != null ? `<div class="prog" style="--c:${x.c}"><i style="width:${x.prog * 100}%"></i></div>` : ''}</div></div>`).join('');
@@ -318,7 +321,7 @@ function vDompet() {
   <div id="wdetail" class="wdetail"></div>
   <div class="books-sec">
     <button class="btn2 dash" data-a="walletNew"><i data-lucide="plus"></i>Tambah bank atau e-wallet</button>
-    ${isPersonal() ? `<div id="planSec">${planHTML()}</div>` : ''}
+    ${isPersonal() ? `<div id="planSec">${planHTML()}</div><div id="invSec">${invHTML()}</div>` : ''}
     <div class="sec-h"><h3>Buku keuangan</h3><small>terpisah satu sama lain</small></div>
     <div class="books">${bookRows(true)}
     </div>
@@ -898,7 +901,7 @@ function sTx(id) {
     <div class="kv"><span>${t.type === 'tf' ? 'Dari → Ke' : 'Dompet'}</span><b>${t.type === 'tf' ? `${esc(w.name)} → ${esc(W(t.to).name)}` : esc(w.name)}</b></div>
     <div class="kv"><span>Tanggal</span><b>${longDate(t.date)}</b></div>
     <div class="kv"><span>Buku</span><b>${(BOOKS[t.book] || BOOKS.pribadi).n}</b></div>${t.items?.length ? `<div class="kv tx-items"><span>Produk</span><div>${t.items.map((it) => `<div><span>${esc(it.name)}${it.qty > 1 && !/\(\d/.test(it.name) ? ` ×${it.qty}` : ''}</span><b>${rp(it.amount)}</b></div>`).join('')}</div></div>` : ''}${rule ? `<div class="kv"><span>Berulang</span><b>${scheduleLabel(rule)} · ${rule.auto ? 'otomatis' : 'tanya dulu'}</b></div>` : ''}</div>
-  ${t.debt ? `<button class="btn2 wide" data-a="debt" data-id="${t.debt}"><i data-lucide="hand-coins"></i>Buka catatan utang & piutang</button>` : txButtons(t, rule)}
+  ${t.debt ? `<button class="btn2 wide" data-a="debt" data-id="${t.debt}"><i data-lucide="hand-coins"></i>Buka catatan utang & piutang</button>` : t.inv ? `<button class="btn2 wide" data-a="asset" data-id="${t.inv}"><i data-lucide="chart-candlestick"></i>Buka aset investasi</button>` : txButtons(t, rule)}
   ${t.debtInit ? '' : `<button class="danger" data-a="del" data-id="${t.id}">Hapus transaksi</button>`}`);
 }
 function txButtons(t, rule) {
@@ -1124,7 +1127,7 @@ function ring(p, c, size = 52, sw = 6, inner = '') {
   return `<span class="gring" style="width:${size}px;height:${size}px"><svg viewBox="0 0 ${size} ${size}"><circle cx="${size / 2}" cy="${size / 2}" r="${r}" stroke="color-mix(in srgb,${c} 18%,transparent)" stroke-width="${sw}" fill="none"/><circle class="gval" cx="${size / 2}" cy="${size / 2}" r="${r}" stroke="${c}" stroke-width="${sw}" fill="none" stroke-linecap="round" stroke-dasharray="${(C * p).toFixed(1)} ${C.toFixed(1)}" transform="rotate(-90 ${size / 2} ${size / 2})" style="--full:${C.toFixed(1)}"/></svg>${inner}</span>`;
 }
 function planHTML() {
-  const nw = netWorth(totalBalance(), store.data.debts, TX()), gs = GOALS(), ds = DEBTS(), free = freeCash();
+  const nw = netWorth(totalBalance(), store.data.debts, TX(), invTotal().value), gs = GOALS(), ds = DEBTS(), free = freeCash();
   const show = S.wall, mask = (n) => (show ? money(n) : '<span class="m">Rp ••••••</span>');
   const goalRow = (g) => {
     const p = goalPct(g), need = monthlyNeed(g, T()), reached = goalLeft(g) === 0;
@@ -1142,7 +1145,7 @@ function planHTML() {
   return `<div class="sec-h"><h3>Kekayaan bersih</h3><small>aset dikurangi utang</small></div>
   <div class="card nw-card">
     <div class="nw-big ${nw.net < 0 ? 'neg' : ''}">${mask(nw.net)}</div>
-    <div class="nw-rows"><span>Saldo dompet</span><b>${mask(nw.cash)}</b><span>Piutang (uang Anda di orang lain)</span><b class="in">${show ? '+' : ''}${mask(nw.receivable)}</b><span>Utang</span><b class="out">${show ? '−' : ''}${mask(nw.owed)}</b></div>
+    <div class="nw-rows"><span>Saldo dompet</span><b>${mask(nw.cash)}</b>${nw.invest ? `<span>Investasi (nilai sekarang)</span><b class="in">${show ? '+' : ''}${mask(nw.invest)}</b>` : ''}<span>Piutang (uang Anda di orang lain)</span><b class="in">${show ? '+' : ''}${mask(nw.receivable)}</b><span>Utang</span><b class="out">${show ? '−' : ''}${mask(nw.owed)}</b></div>
     ${show ? '' : '<p class="form-note" style="margin:8px 0 0">Ketuk “Tampilkan semua saldo” di atas untuk melihat angkanya.</p>'}</div>
   <div class="sec-h"><h3>Target tabungan</h3>${gs.length ? `<small>saldo bebas ${short(free)}</small>` : ''}</div>
   ${gs.length ? `<div class="goals">${gs.map(goalRow).join('')}</div>` : '<div class="empty-card"><b>Belum ada target</b>Misalnya dana darurat 6× pengeluaran bulanan, liburan, atau DP rumah. Uangnya tetap di dompet; target hanya menandai berapa yang sudah disisihkan.</div>'}
@@ -1310,6 +1313,113 @@ function checkBudgets(announce = true) {
 /** The budget warning waits for the save confirmation toast instead of being covered by it. */
 function flushBudgetNote() {
   if (!S.bNote) return; const m = S.bNote; S.bNote = null; toast(m);
+}
+
+/* ================= investments ================= */
+const ASSETS = () => store.data.assets;
+const ALLTX = () => store.data.txs;
+const invTotal = () => portfolio(ASSETS(), ALLTX());
+const invShown = () => store.data.settings.investTypes || ALL_TYPES;
+const signed = (n) => (n > 0 ? '+' : n < 0 ? '−' : '') + rp(Math.abs(n));
+const pctSigned = (x) => (x === null ? '' : ` (${x >= 0 ? '+' : '−'}${(Math.abs(x) * 100).toFixed(1).replace('.', ',')}%)`);
+/** "1.523,45" / "152,3456" / "5600" → number (Indonesian decimals; a lone dot followed by 3 digits is a thousands dot). */
+const num = (v) => parseDec(String(v ?? ''));
+const priceTxt = (n) => 'Rp' + Number(n || 0).toLocaleString('id-ID', { maximumFractionDigits: n && n < 100 ? 4 : 2 });
+function invHTML() {
+  const show = S.wall, mask = (h) => (show ? h : '<span class="m">Rp ••••••</span>');
+  const shown = invShown(), all = ASSETS();
+  const rows = all.filter((a) => shown.includes(a.type)).map((a) => ({ a, p: position(a, ALLTX()) })).sort((x, y) => (y.p.units > 0) - (x.p.units > 0) || y.p.value - x.p.value);
+  const tot = portfolio(rows.map((r) => r.a), ALLTX());
+  const hiddenN = all.length - rows.length;
+  const stale = all.filter((a) => a.type === 'saham' && a.code).length > 0;
+  const row = ({ a, p }) => { const t = ASSET_TYPES[a.type];
+    return `<button class="tx inv-row${p.units ? '' : ' closed'}" data-a="asset" data-id="${a.id}"><span class="ic" style="--c:${t.c}"><i data-lucide="${t.i}"></i></span>
+      <span class="tx-main"><b>${esc(a.name)}</b><small>${p.units ? `${unitsLabel(a, p.units)} · ${priceTxt(a.price)}` : 'Sudah dijual semua'}</small></span>
+      <span class="inv-val"><b class="m">${mask(rp(p.value))}</b>${p.units && show ? `<small class="${p.gain >= 0 ? 'up' : 'down'}">${signed(p.gain)}${pctSigned(p.gainPct)}</small>` : ''}</span></button>`; };
+  return `<div class="sec-h"><h3>Investasi</h3>${all.length ? `<small>${rows.filter((r) => r.p.units).length} aset aktif</small>` : ''}</div>
+  ${all.length ? `<div class="card nw-card">
+    <div class="nw-big">${mask(money(tot.value))}</div>
+    <div class="nw-rows"><span>Modal yang ditanam</span><b>${mask(money(tot.cost))}</b><span>Untung/rugi berjalan</span><b class="${tot.gain >= 0 ? 'in' : 'out'}">${mask(`<span class="m">${signed(tot.gain)}${pctSigned(tot.gainPct)}</span>`)}</b>
+      ${tot.realized ? `<span>Untung/rugi dari penjualan</span><b class="${tot.realized >= 0 ? 'in' : 'out'}">${mask(`<span class="m">${signed(tot.realized)}</span>`)}</b>` : ''}${tot.income ? `<span>Dividen, kupon, bunga</span><b class="in">${mask(`<span class="m">+${rp(tot.income)}</span>`)}</b>` : ''}</div></div>` : ''}
+  <div class="inv-types"><small>Tampilkan:</small>${ALL_TYPES.map((k) => `<button class="chip cat ${shown.includes(k) ? 'on' : 'off'}" style="--c:${ASSET_TYPES[k].c}" data-a="invType" data-v="${k}" aria-pressed="${shown.includes(k)}"><i data-lucide="${shown.includes(k) ? 'eye' : 'eye-off'}"></i>${ASSET_TYPES[k].n}</button>`).join('')}</div>
+  ${rows.length ? `<div class="list">${rows.map(row).join('')}</div>` : all.length ? '<div class="empty-card">Semua aset ada di jenis yang sedang disembunyikan.</div>' : '<div class="empty-card"><b>Belum ada investasi</b>Catat saham, reksadana, obligasi, emas, deposito, atau kripto. Membeli tidak dihitung pengeluaran: uangnya berpindah dari dompet menjadi aset.</div>'}
+  ${hiddenN && rows.length ? `<p class="form-note" style="margin:8px 2px 0">${hiddenN} aset di jenis yang disembunyikan tidak ikut dihitung di kartu ini (tetap masuk kekayaan bersih).</p>` : ''}
+  <div class="btn-row" style="margin-top:10px"><button class="btn2 dash" style="margin:0" data-a="assetNew"><i data-lucide="plus"></i>Tambah aset</button>${stale ? `<button class="btn2 dash" style="margin:0" data-a="invPrices" id="invPricesBtn"><i data-lucide="refresh-cw"></i>Perbarui harga saham</button>` : ''}</div>`;
+}
+function redrawInv() { const el = $('invSec'); if (el) { el.innerHTML = invHTML(); icons(); } const ps = $('planSec'); if (ps) { ps.innerHTML = planHTML(); icons(); } }
+
+let AF = null;
+function afInner() {
+  const t = ASSET_TYPES[AF.type];
+  return `${AF.id ? '' : `<span class="lab">Jenis</span><div class="hscroll">${ALL_TYPES.map((k) => `<button class="chip cat ${AF.type === k ? 'on' : ''}" style="--c:${ASSET_TYPES[k].c}" data-a="afType" data-v="${k}"><i data-lucide="${ASSET_TYPES[k].i}"></i>${ASSET_TYPES[k].n}</button>`).join('')}</div>`}
+    ${AF.type === 'saham' ? `<span class="lab">Kode saham</span><input class="field" id="afCode" maxlength="6" value="${esc(AF.code)}" placeholder="mis. BBCA" autocomplete="off" autocapitalize="characters" style="text-transform:uppercase">
+    <span class="lab">Nama (opsional)</span><input class="field" id="afName" maxlength="32" value="${esc(AF.name !== AF.code ? AF.name : '')}" placeholder="mis. Bank Central Asia" autocomplete="off">`
+    : `<span class="lab">Nama</span><input class="field" id="afName" maxlength="32" value="${esc(AF.name)}" placeholder="${t.hint}" autocomplete="off">`}
+    <span class="lab">Harga sekarang per ${t.lot ? 'lembar' : t.unit}${AF.type === 'saham' ? ' (kosongkan untuk diambil otomatis)' : ''}</span><input class="field" id="afPrice" inputmode="decimal" value="${AF.price ? String(AF.price).replace('.', ',') : ''}" placeholder="0" autocomplete="off">
+    ${AF.type === 'deposito' || AF.type === 'obligasi' ? '<p class="form-note" style="margin-top:-4px">Untuk deposito dan obligasi, paling mudah: isi harga 1 dan catat pokoknya sebagai jumlah unit (mis. 10.000.000 unit × Rp1).</p>' : ''}
+    <button class="primary" data-a="afSave"><i data-lucide="check"></i>${AF.id ? 'Simpan' : 'Tambah aset'}</button>
+    ${AF.id ? '<button class="danger" data-a="afDelete">Hapus aset ini</button>' : ''}`;
+}
+function afRead() { AF.name = ($('afName')?.value || '').trim(); AF.code = ($('afCode')?.value || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, ''); AF.price = num($('afPrice')?.value); }
+function afDraw() { const b = $('afBody'); if (b) { b.innerHTML = afInner(); icons(); } }
+function sAssetForm(id) {
+  const a = id ? ASSETS().find((x) => x.id === id) : null;
+  AF = a ? { ...a } : { id: null, type: (invShown()[0] || 'saham'), name: '', code: '', price: 0 };
+  openSheet(a ? 'Ubah aset' : 'Aset investasi baru', `<div id="afBody">${afInner()}</div>`);
+  if (!a) later(350, () => ($('afCode') || $('afName'))?.focus());
+}
+let IF = null; // trade form: { id, mode: 'buy' | 'sell' | 'income', wallet }
+function sAsset(id) {
+  const a = ASSETS().find((x) => x.id === id); if (!a) return;
+  const t = ASSET_TYPES[a.type], p = position(a, ALLTX()), list = sorted(ALLTX().filter((x) => x.inv === a.id));
+  if (!IF || IF.id !== id) IF = { id, mode: 'buy', wallet: defaults().bank };
+  if (IF.mode === 'sell' && !p.units) IF.mode = 'buy';
+  const m = IF.mode, lotNote = t.lot ? ` (1 lot = ${t.lot} lembar)` : '';
+  const wchips = (extra) => `<div class="hscroll">${WL().map((w) => `<button class="chip ${IF.wallet === w.id ? 'on' : ''}" data-a="ifWallet" data-v="${w.id}"><i data-lucide="${WALLET_ICON[w.group]}"></i>${esc(w.name)}</button>`).join('')}${extra || ''}</div>`;
+  openSheet(a.name, `<div class="det-top"><span class="ic" style="--c:${t.c}"><i data-lucide="${t.i}"></i></span><div class="a">${money(p.value)}</div>
+      <p>${p.units ? `${unitsLabel(a, p.units)} · <span class="${p.gain >= 0 ? 'up' : 'down'}">${signed(p.gain)}${pctSigned(p.gainPct)}</span>` : 'Tidak ada kepemilikan saat ini'}</p></div>
+    <div class="card" style="padding:4px 14px">
+      <div class="kv" style="border-top:0"><span>Jenis</span><b>${t.n}${a.code ? ` · ${esc(a.code)}` : ''}</b></div>
+      ${p.units ? `<div class="kv"><span>Harga rata-rata beli</span><b>${priceTxt(p.avg)}</b></div><div class="kv"><span>Modal</span><b>${money(p.cost)}</b></div>` : ''}
+      ${p.realized ? `<div class="kv"><span>Untung/rugi dari penjualan</span><b class="${p.realized >= 0 ? 'up' : 'down'}">${signed(p.realized)}</b></div>` : ''}
+      ${p.income ? `<div class="kv"><span>Dividen/kupon/bunga diterima</span><b class="up">+${rp(p.income)}</b></div>` : ''}</div>
+    <span class="lab">Harga sekarang per ${t.lot ? 'lembar' : t.unit}${a.priceAt ? ` · diperbarui ${ago(a.priceAt)}` : ''}</span>
+    <div class="inv-price"><input class="field" id="ipPrice" inputmode="decimal" value="${a.price ? String(a.price).replace('.', ',') : ''}" placeholder="0" autocomplete="off"><button class="btn2" data-a="ipSave" data-id="${a.id}"><i data-lucide="check"></i>Simpan harga</button></div>
+    <div class="seg" id="ifSeg" style="margin:6px 0 12px"><span class="pill"></span>${[['buy', 'Beli'], ['sell', 'Jual'], ['income', a.type === 'saham' ? 'Dividen' : a.type === 'obligasi' ? 'Kupon' : 'Hasil']].map(([k, l]) => `<button class="${m === k ? 'on' : ''}" data-a="ifMode" data-v="${k}" ${k === 'sell' && !p.units ? 'disabled' : ''}>${l}</button>`).join('')}</div>
+    ${m === 'income' ? `<span class="lab">Jumlah diterima</span><input class="field" id="ifAmt" inputmode="numeric" placeholder="0" autocomplete="off">
+      <span class="lab">Masuk ke</span>${wchips()}`
+    : `<span class="lab">Jumlah ${t.unit}${lotNote}${m === 'sell' ? ` · dimiliki ${unitsLabel(a, p.units)}` : ''}</span><input class="field" id="ifUnits" inputmode="decimal" placeholder="0" autocomplete="off">
+      <span class="lab">Harga ${m === 'buy' ? 'beli' : 'jual'} per ${t.lot ? 'lembar' : t.unit}</span><input class="field" id="ifPrice" inputmode="decimal" value="${a.price ? String(a.price).replace('.', ',') : ''}" placeholder="0" autocomplete="off">
+      <span class="lab">Biaya ${m === 'buy' ? 'beli' : 'jual + pajak'} (opsional)</span><input class="field" id="ifFee" inputmode="numeric" placeholder="0" autocomplete="off">
+      <span class="lab">${m === 'buy' ? 'Dibayar dari' : 'Hasil masuk ke'}</span>${wchips(m === 'buy' ? `<button class="chip ${IF.wallet === '' ? 'on' : ''}" data-a="ifWallet" data-v=""><i data-lucide="archive"></i>Sudah dimiliki sebelumnya</button>` : '')}
+      ${m === 'buy' && IF.wallet === '' ? '<p class="form-note" style="margin-top:-4px">Untuk investasi yang sudah ada sebelum memakai aplikasi: dicatat sebagai kepemilikan tanpa mengurangi saldo dompet mana pun.</p>' : ''}`}
+    <input class="field" type="date" id="ifDate" value="${T()}" max="${T()}" aria-label="Tanggal">
+    <p class="form-note" id="ifSum"></p>
+    <button class="primary" data-a="ifSave" data-id="${a.id}"><i data-lucide="check"></i>${m === 'buy' ? 'Catat pembelian' : m === 'sell' ? 'Catat penjualan' : 'Catat penerimaan'}</button>
+    ${list.length ? `<div class="sec-h"><h3>Riwayat</h3><small>${list.length} transaksi</small></div>${grouped(list)}` : ''}
+    <div class="btn-row" style="margin-top:12px"><button class="btn2" data-a="assetEdit" data-id="${a.id}"><i data-lucide="pencil"></i>Ubah aset</button></div>`);
+  later(60, () => placePill($('ifSeg')));
+}
+function ifSum() {
+  const el = $('ifSum'); if (!el || !IF || IF.mode === 'income') return;
+  const a = ASSETS().find((x) => x.id === IF.id); if (!a) return;
+  const t = ASSET_TYPES[a.type], u = num($('ifUnits')?.value) * (t.lot || 1), pr = num($('ifPrice')?.value), fee = Number(digitsOnly($('ifFee')?.value || '')) || 0;
+  el.innerHTML = u && pr ? `${IF.mode === 'buy' ? 'Total dibayar' : 'Total diterima'}: <b>${rp(IF.mode === 'buy' ? u * pr + fee : Math.max(0, u * pr - fee))}</b>${t.lot ? ` · ${u.toLocaleString('id-ID')} lembar` : ''}` : '';
+}
+/** Latest prices for all shares with a ticker (through the stock-price Edge Function); manual prices stay as backup. */
+async function refreshPrices(manual) {
+  const codes = [...new Set(ASSETS().filter((a) => a.type === 'saham' && a.code).map((a) => a.code))];
+  if (!codes.length) return;
+  if (!cloudOn() || !navigator.onLine) { if (manual) toast(cloudOn() ? 'Sedang offline' : 'Sambungkan cadangan online untuk harga otomatis'); return; }
+  const btn = $('invPricesBtn'); if (btn) { btn.disabled = true; btn.innerHTML = '<i data-lucide="hourglass"></i>Mengambil harga…'; icons(); }
+  try {
+    const prices = await cloud.stockPrices(codes), now = new Date().toISOString();
+    let n = 0;
+    for (const a of ASSETS().slice()) if (a.type === 'saham' && prices[a.code] > 0) { store.saveAsset({ ...a, price: prices[a.code], priceAt: now }); n++; }
+    S.pricesAt = Date.now();
+    redrawInv(); renderDesk();
+    if (manual) toast(n ? `Harga ${n} saham diperbarui` : 'Harga tidak ditemukan. Periksa kode sahamnya.');
+  } catch (e) { console.error(e); if (manual) toast('Harga otomatis gagal: ' + cloud.cloudError(e)); redrawInv(); }
 }
 
 /* ================= Excel export ================= */
@@ -1506,6 +1616,8 @@ function bindEvents() {
       refreshNote(f);
       const sm = $('stSum'); if (sm) sm.innerHTML = stSumHTML(f);
     }
+    if (id === 'ifUnits' || id === 'ifPrice' || id === 'ifFee') { if (id === 'ifFee') { const v = digitsOnly(e.target.value); e.target.value = v ? fmtN(v) : ''; } ifSum(); }
+    if (id === 'ifAmt') { const v = digitsOnly(e.target.value); e.target.value = v ? fmtN(v) : ''; }
     if (id.startsWith('bf-')) { const v = digitsOnly(e.target.value); e.target.value = v ? fmtN(v) : ''; BF[id.slice(3)] = Number(v) || 0; $('bfTotal').innerHTML = bfTotal(); }
     if (id === 'rfAmt' || id === 'dueAmt') { const v = digitsOnly(e.target.value); e.target.value = v ? fmtN(v) : ''; if (id === 'rfAmt') RF.r.amount = Number(v) || 0; }
     if (id === 'stDate' && e.target.value) S.struk.form.date = e.target.value > T() ? T() : e.target.value;
@@ -1542,6 +1654,7 @@ function bindEvents() {
     if (document.hidden) { if (cloudOn() && store.data.settings.cloudDirty) pushNow(); return; }
     if (store.data.settings.onboarded && $('composer').hidden) refresh();
     if (cloudOn()) syncNow(false); else runRecurring();
+    if (!S.pricesAt || Date.now() - S.pricesAt > 3 * 3600e3) refreshPrices(false);
   });
   if (window.matchMedia) matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', () => {});
 }
@@ -1583,7 +1696,7 @@ function onClick(e) {
       const clearStagger = () => setTimeout(() => document.querySelectorAll('.wcard').forEach((c) => (c.style.transitionDelay = '')), 1400);
       if (S.wall) { if (!S.wsel) { stagger((i) => (ks.length - 1 - i) * 70); layoutStack(); clearStagger(); } ks.forEach((k, i) => showCard(k, 200 + i * 110)); if (wt) { wt.classList.remove('masked'); wt.dataset.count = totalBalance(); countUp(wt); } }
       else { ks.slice().reverse().forEach((k, i) => hideCard(k, i * 60)); if (wt) { wt.classList.add('masked'); delete wt.dataset.count; wt.textContent = 'Rp ••••••'; } if (!S.wsel) setTimeout(() => { stagger((i) => i * 60); layoutStack(); clearStagger(); }, 380); }
-      { const ps = $('planSec'); if (ps) { ps.innerHTML = planHTML(); icons(); } }
+      redrawInv();
       break;
     }
     case 'walletNew': sWalletForm(null); break;
@@ -1616,6 +1729,7 @@ function onClick(e) {
     case 'dup': {
       const t = TX().find((x) => x.id === d.id); closeSheet(); if (!t) break;
       if (t.debt) { toast('Catat pembayaran lewat catatan utang di Dompet'); break; }
+      if (t.inv) { toast('Catat beli/jual lewat aset investasi di Dompet'); break; }
       const n = store.addTx({ date: T(), type: t.type, cat: t.cat, sub: t.sub, amount: t.amount, wallet: t.wallet, to: t.to, note: t.note }); markFresh([n]);
       refresh(); toast(`Diduplikat: ${rp(t.amount)} · hari ini`); break;
     }
@@ -1802,6 +1916,55 @@ function onClick(e) {
     case 'budget': sBudget(); break;
     case 'bfSuggest': { const avg = suggestBudgets(lastMonthsByCat()); Object.assign(BF, avg); OUTC().forEach((k) => { const f = $('bf-' + k); if (f) f.value = BF[k] ? fmtN(BF[k]) : ''; }); $('bfTotal').innerHTML = bfTotal(); toast('Diisi dari rata-rata. Sesuaikan bila perlu.'); break; }
     case 'bfSave': { const clean = Object.fromEntries(Object.entries(BF).filter(([, v]) => v > 0)); saveBudgets(clean); S.bSeen = null; closeSheet(); refresh(); toast(Object.keys(clean).length ? `Anggaran ${Object.keys(clean).length} kategori disimpan` : 'Anggaran dikosongkan'); break; }
+    case 'asset': IF = null; sAsset(d.id); break;
+    case 'assetNew': sAssetForm(null); break;
+    case 'assetEdit': sAssetForm(d.id); break;
+    case 'afType': afRead(); AF.type = d.v; afDraw(); break;
+    case 'afSave': {
+      afRead();
+      if (AF.type === 'saham' && !AF.code) { toast('Isi kode sahamnya'); $('afCode')?.focus(); break; }
+      const name = AF.type === 'saham' ? (AF.name || AF.code) : AF.name;
+      if (!name) { toast('Isi namanya dulu'); $('afName')?.focus(); break; }
+      const old = AF.id ? ASSETS().find((x) => x.id === AF.id) : null;
+      const a = old ? { ...old, name, code: AF.code, price: AF.price || old.price, priceAt: AF.price && AF.price !== old.price ? new Date().toISOString() : old.priceAt }
+        : { id: store.newRuleId(), type: AF.type, name, code: AF.type === 'saham' ? AF.code : '', price: AF.price || 0, priceAt: AF.price ? new Date().toISOString() : '', createdAt: Date.now() };
+      store.saveAsset(a);
+      if (!old && !(store.data.settings.investTypes || ALL_TYPES).includes(a.type)) store.setSetting('investTypes', [...invShown(), a.type]);
+      refresh(); IF = null; sAsset(a.id); toast(old ? 'Aset disimpan' : `${name} ditambahkan. Catat pembelian pertamanya.`);
+      if (a.type === 'saham' && !a.price) refreshPrices(false).then(() => { if ($('ipPrice')) sAsset(a.id); });
+      break;
+    }
+    case 'afDelete': { const a = ASSETS().find((x) => x.id === AF.id); if (!a) break; const n = ALLTX().filter((t) => t.inv === a.id).length;
+      sConfirm('Hapus aset ini?', `<b>${esc(a.name)}</b>${n ? ` beserta <b>${n} transaksi</b>-nya (beli, jual, dividen)` : ''} akan dihapus${n ? ', dan saldo dompet menyesuaikan seolah transaksi itu tidak pernah ada' : ''}. Tidak bisa dibatalkan.`, 'Hapus', () => { store.deleteAsset(a.id); refresh(); toast('Aset dihapus'); }); break; }
+    case 'invType': { const cur = invShown(), nx = cur.includes(d.v) ? cur.filter((k) => k !== d.v) : [...cur, d.v]; store.setSetting('investTypes', nx); redrawInv(); break; }
+    case 'invPrices': refreshPrices(true); break;
+    case 'ipSave': { const a = ASSETS().find((x) => x.id === d.id), v = num($('ipPrice')?.value); if (!a) break; if (!v) { toast('Isi harganya dulu'); break; } store.saveAsset({ ...a, price: v, priceAt: new Date().toISOString() }); refresh(); sAsset(a.id); toast('Harga diperbarui'); break; }
+    case 'ifMode': IF.mode = d.v; sAsset(IF.id); break;
+    case 'ifWallet': { IF.wallet = d.v; const keep = ['ifUnits', 'ifPrice', 'ifFee', 'ifAmt', 'ifDate'].map((k) => [k, $(k)?.value]); const sc = document.querySelector('#layer .sheet-body')?.scrollTop || 0; sAsset(IF.id); keep.forEach(([k, v]) => { if ($(k) && v !== undefined) $(k).value = v; }); const sb = document.querySelector('#layer .sheet-body'); if (sb) sb.scrollTop = sc; ifSum(); break; }
+    case 'ifSave': {
+      const a = ASSETS().find((x) => x.id === d.id); if (!a) break;
+      const t = ASSET_TYPES[a.type], date = ($('ifDate')?.value || T()) > T() ? T() : $('ifDate')?.value || T();
+      if (IF.mode === 'income') {
+        const amt = Number(digitsOnly($('ifAmt')?.value || '')) || 0; if (!amt) { toast('Isi jumlahnya dulu'); $('ifAmt')?.focus(); break; }
+        markFresh([store.addTx(incomeTx(a, amt, IF.wallet || defaults().bank, date))]); refresh(); sAsset(a.id); toast(`${rp(amt)} dicatat sebagai pemasukan`); break;
+      }
+      const units = num($('ifUnits')?.value) * (t.lot || 1), price = num($('ifPrice')?.value), fee = Number(digitsOnly($('ifFee')?.value || '')) || 0;
+      if (!units) { toast(`Isi jumlah ${t.unit}-nya`); $('ifUnits')?.focus(); break; }
+      if (!price) { toast('Isi harganya'); $('ifPrice')?.focus(); break; }
+      const p = position(a, ALLTX());
+      if (IF.mode === 'sell') {
+        if (units > p.units + 1e-9) { toast(`Maksimal ${unitsLabel(a, p.units)}`); break; }
+        if (!IF.wallet) IF.wallet = defaults().bank;
+        const tx = sellTx(a, units, price, fee, IF.wallet, date), gain = tx.amount - p.avg * units;
+        markFresh([store.addTx(tx)]); store.saveAsset({ ...a, price, priceAt: new Date().toISOString() });
+        refresh(); sAsset(a.id); toast(`Terjual ${unitsLabel(a, units)} · ${gain >= 0 ? 'untung' : 'rugi'} ${rp(Math.abs(gain))}`);
+      } else {
+        markFresh([store.addTx(buyTx(a, units, price, fee, IF.wallet, date))]);
+        if (!a.price || date === T()) store.saveAsset({ ...a, price: a.price && date !== T() ? a.price : price, priceAt: new Date().toISOString() });
+        refresh(); sAsset(a.id); toast(`Beli ${unitsLabel(a, units)} ${a.name} dicatat`);
+      }
+      break;
+    }
     case 'excel': sExport(); break;
     case 'exRange': EX.range = d.v; $('exBody').innerHTML = exInner(); icons(); placePill($('exRange')); break;
     case 'exGo': el.disabled = true; el.innerHTML = '<i data-lucide="hourglass"></i>Membuat file…'; icons(); exportExcel(exPeriod(EX.range)); break;
@@ -1847,6 +2010,7 @@ export async function start() {
   else if (store.data.settings.onboarded) setTimeout(runRecurring, 600);
   store.requestPersist().then((ok) => { S.persisted = ok; });
   checkBudgets(false);
+  if (store.data.settings.onboarded) setTimeout(() => refreshPrices(false), 2500);
   bioAvailable().then((ok) => { S.bioAvail = ok; if (ok && PANELS[3]) { renderPanel(3); icons(); } });
   renderAll(); setPos(0); PANELS[0].classList.add('play');
   requestAnimationFrame(() => { measureTabs(); moveInd(0); });

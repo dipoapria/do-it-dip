@@ -38,3 +38,14 @@ Ubah daftar `MODELS` di `supabase/functions/read-receipt/index.ts` (yang pertama
 
 `src/scan.ts`, `src/imgproc.ts`, `src/receipt.ts` dan lab pengukur `tools/ocr-lab/` tetap ada agar OCR bisa
 dikembangkan lagi kapan saja (lihat ROADMAP, bagian catatan teknis).
+
+## Harga saham otomatis (opsional)
+
+Fungsi kedua, `stock-price`, mengambil harga saham Indonesia terbaru untuk fitur Investasi.
+
+1. Supabase → **Edge Functions** → **Deploy a new function** → **Via Editor**, nama: `stock-price` (persis).
+2. Tempel seluruh isi `supabase/functions/stock-price/index.ts`, lalu **Deploy**. Biarkan **Verify JWT** menyala.
+3. Tidak perlu secret apa pun.
+
+Sumber harganya tidak resmi (data publik Yahoo Finance, kode saham + ".JK") dan bisa tertunda atau berhenti.
+Kalau gagal, aplikasi tetap memakai harga yang diisi manual di halaman aset.

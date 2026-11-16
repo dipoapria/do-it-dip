@@ -95,11 +95,12 @@ export function paymentTx(d: Debt, amount: number, wallet: string, date: string)
     : { ...base, type: 'in', cat: 'masuk_lain', sub: 'Lainnya', wallet, to: null };
 }
 
-export interface NetWorth { cash: number; receivable: number; owed: number; net: number }
-export function netWorth(cash: number, debts: Debt[], txs: Tx[]): NetWorth {
+export interface NetWorth { cash: number; invest: number; receivable: number; owed: number; net: number }
+/** Wallets + investments (at current value) + receivables − debts. */
+export function netWorth(cash: number, debts: Debt[], txs: Tx[], invest = 0): NetWorth {
   let receivable = 0, owed = 0;
   for (const d of debts) { const left = debtLeft(d, txs); if (d.kind === 'piutang') receivable += left; else owed += left; }
-  return { cash, receivable, owed, net: cash + receivable - owed };
+  return { cash, invest, receivable, owed, net: cash + invest + receivable - owed };
 }
 
 /** Monthly instalments still running (utang with a monthly amount and something left to pay). */

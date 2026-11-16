@@ -4,6 +4,7 @@ import Dexie, { type Table } from 'dexie';
 import { DEFAULT_SETTINGS, type Settings, type Tx, type Wallet } from './model.ts';
 import type { Rule } from './recurring.ts';
 import type { Debt, Goal } from './plan.ts';
+import type { Asset } from './invest.ts';
 
 interface Learned { word: string; cat: string; sub: string }
 interface SettingRow { key: string; value: unknown }
@@ -16,11 +17,13 @@ class DipDB extends Dexie {
   rules!: Table<Rule, string>;
   goals!: Table<Goal, string>;
   debts!: Table<Debt, string>;
+  assets!: Table<Asset, string>;
   constructor() {
     super('do-it-dip');
     this.version(1).stores({ tx: 'id,date,book,wallet,type', wallets: 'id,order', learned: 'word', settings: 'key' });
     this.version(2).stores({ rules: 'id' });
     this.version(3).stores({ goals: 'id', debts: 'id' });
+    this.version(4).stores({ assets: 'id' });
   }
 }
 export const db = new DipDB();
@@ -33,6 +36,7 @@ export const data = {
   rules: [] as Rule[],
   goals: [] as Goal[],
   debts: [] as Debt[],
+  assets: [] as Asset[],
 };
 
 const fail = (e: unknown) => {
@@ -63,6 +67,7 @@ export async function load(): Promise<void> {
   data.rules = r;
   data.goals = g;
   data.debts = d;
+  data.assets = await db.assets.toArray();
   data.learned = Object.fromEntries(l.map((x) => [x.word, { cat: x.cat, sub: x.sub }]));
   data.settings = { ...DEFAULT_SETTINGS, ...Object.fromEntries(s.map((x) => [x.key, x.value])) } as Settings;
 }
@@ -160,6 +165,20 @@ export function saveDebt(d: Debt): void {
   db.debts.put(d).catch(fail);
   changed();
 }
+export function saveAsset(a: Asset): void {
+  const i = data.assets.findIndex((x) => x.id === a.id);
+  if (i >= 0) data.assets[i] = a; else data.assets.push(a);
+  db.assets.put(a).catch(fail);
+  changed();
+}
+/** Removes the asset and its transactions (buys, sells, dividends); wallet balances follow. */
+export function deleteAsset(id: string): void {
+  data.assets = data.assets.filter((a) => a.id !== id);
+  const gone = data.txs.filter((t) => t.inv === id).map((t) => t.id);
+  data.txs = data.txs.filter((t) => t.inv !== id);
+  db.transaction('rw', db.assets, db.tx, async () => { await db.assets.delete(id); await db.tx.bulkDelete(gone); }).catch(fail);
+  changed();
+}
 /** Removes the debt and its linked transactions (the loan and its payments). */
 export function deleteDebt(id: string): void {
   data.debts = data.debts.filter((d) => d.id !== id);
@@ -189,13 +208,13 @@ export function setSetting<K extends keyof Settings>(key: K, value: Settings[K])
 /* ---------- backup ---------- */
 export interface Backup {
   app: 'do-it-dip'; version: 1; exportedAt: string;
-  data: { tx: Tx[]; wallets: Wallet[]; learned: Learned[]; settings: Partial<Settings>; rules?: Rule[]; goals?: Goal[]; debts?: Debt[] };
+  data: { tx: Tx[]; wallets: Wallet[]; learned: Learned[]; settings: Partial<Settings>; rules?: Rule[]; goals?: Goal[]; debts?: Debt[]; assets?: Asset[] };
 }
 export function exportAll(): Backup {
   return {
     app: 'do-it-dip', version: 1, exportedAt: new Date().toISOString(),
     data: {
-      tx: data.txs, wallets: data.wallets, rules: data.rules, goals: data.goals, debts: data.debts,
+      tx: data.txs, wallets: data.wallets, rules: data.rules, goals: data.goals, debts: data.debts, assets: data.assets,
       learned: Object.entries(data.learned).map(([word, v]) => ({ word, ...v })),
       settings: Object.fromEntries(Object.entries(data.settings).filter(([k]) => !DEVICE_KEYS.includes(k as keyof Settings))) as Partial<Settings>,
     },
@@ -214,11 +233,12 @@ export async function importAll(b: Backup): Promise<void> {
   // Keep this device's own settings (PIN, Face ID, theme, cloud link); take everything else from the backup.
   const local = Object.fromEntries(DEVICE_KEYS.map((k) => [k, data.settings[k]]));
   const incoming = Object.fromEntries(Object.entries(b.data.settings || {}).filter(([k]) => !DEVICE_KEYS.includes(k as keyof Settings)));
-  await db.transaction('rw', [db.tx, db.wallets, db.learned, db.settings, db.rules, db.goals, db.debts], async () => {
-    await Promise.all([db.tx.clear(), db.wallets.clear(), db.learned.clear(), db.settings.clear(), db.rules.clear(), db.goals.clear(), db.debts.clear()]);
+  await db.transaction('rw', [db.tx, db.wallets, db.learned, db.settings, db.rules, db.goals, db.debts, db.assets], async () => {
+    await Promise.all([db.tx.clear(), db.wallets.clear(), db.learned.clear(), db.settings.clear(), db.rules.clear(), db.goals.clear(), db.debts.clear(), db.assets.clear()]);
     await db.tx.bulkPut(b.data.tx);
     await db.goals.bulkPut(Array.isArray(b.data.goals) ? b.data.goals : []);
     await db.debts.bulkPut(Array.isArray(b.data.debts) ? b.data.debts : []);
+    await db.assets.bulkPut(Array.isArray(b.data.assets) ? b.data.assets : []);
     await db.rules.bulkPut(Array.isArray(b.data.rules) ? b.data.rules : []);
     await db.wallets.bulkPut(b.data.wallets);
     await db.learned.bulkPut(b.data.learned || []);
@@ -227,8 +247,8 @@ export async function importAll(b: Backup): Promise<void> {
   await load();
 }
 export async function wipe(): Promise<void> {
-  await db.transaction('rw', [db.tx, db.wallets, db.learned, db.settings, db.rules, db.goals, db.debts], async () => {
-    await Promise.all([db.tx.clear(), db.wallets.clear(), db.learned.clear(), db.settings.clear(), db.rules.clear(), db.goals.clear(), db.debts.clear()]);
+  await db.transaction('rw', [db.tx, db.wallets, db.learned, db.settings, db.rules, db.goals, db.debts, db.assets], async () => {
+    await Promise.all([db.tx.clear(), db.wallets.clear(), db.learned.clear(), db.settings.clear(), db.rules.clear(), db.goals.clear(), db.debts.clear(), db.assets.clear()]);
   });
   await load();
 }

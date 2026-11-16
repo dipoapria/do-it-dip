@@ -56,7 +56,8 @@ test('lending money out and getting it back', () => {
 test('net worth and instalment ratio', () => {
   const debts = [debt(), debt({ id: 'k', wallet: '', amount: 18_000_000, monthly: 900_000 }), debt({ id: 'l', kind: 'piutang', amount: 400_000, monthly: 0 })];
   const nw = netWorth(10_000_000, debts, []);
-  assert.deepEqual(nw, { cash: 10_000_000, receivable: 400_000, owed: 21_000_000, net: -10_600_000 });
+  assert.deepEqual(nw, { cash: 10_000_000, invest: 0, receivable: 400_000, owed: 21_000_000, net: -10_600_000 });
+  assert.equal(netWorth(10_000_000, debts, [], 5_000_000).net, -5_600_000);
   assert.equal(monthlyInstalments(debts, []), 1_400_000);
   assert.equal(dsr(1_400_000, 5_000_000), 0.28);
   assert.equal(dsr(1, 0), null);

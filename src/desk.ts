@@ -6,6 +6,7 @@ import { balance, monthList, stats } from './stats.ts';
 import { addMonths, BLN, BULAN, dayLabel, daysIn, esc, monthName, pad, pct, rp, shortTxt, todayStr } from './format.ts';
 import * as store from './store.ts';
 import { netWorth } from './plan.ts';
+import { portfolio } from './invest.ts';
 import { BOOKS } from './model.ts';
 
 type Api = { icons: () => void; onPhoneShown: () => void; exportExcel: (p: { from: string; to: string; label: string; file: string }) => void };
@@ -130,8 +131,8 @@ function notes(P, cur, prev) {
 }
 function walletsStrip() {
   const ws = WL().map((w) => ({ w, b: balance(ALL(), w) })), tot = ws.reduce((s, x) => s + Math.max(0, x.b), 0) || 1;
-  const cash = ws.reduce((s, x) => s + x.b, 0), nw = store.curBook() === 'pribadi' && store.data.debts.length ? netWorth(cash, store.data.debts, TX()) : null;
-  return `<div class="dk-card-h"><h3>Saldo per dompet</h3><small>${nw ? `kekayaan bersih <b class="m">${rp(nw.net)}</b> · piutang ${rp(nw.receivable)} · utang ${rp(nw.owed)}` : 'hari ini'}</small></div>
+  const cash = ws.reduce((s, x) => s + x.b, 0), inv = portfolio(store.data.assets, ALL()).value, nw = store.curBook() === 'pribadi' && (store.data.debts.length || inv) ? netWorth(cash, store.data.debts, TX(), inv) : null;
+  return `<div class="dk-card-h"><h3>Saldo per dompet</h3><small>${nw ? `kekayaan bersih <b class="m">${rp(nw.net)}</b> ${nw.invest ? ` · investasi ${rp(nw.invest)}` : ''} · piutang ${rp(nw.receivable)} · utang ${rp(nw.owed)}` : 'hari ini'}</small></div>
   <div class="dk-wallets">${ws.map(({ w, b }, i) => `<div class="dk-wallet" style="--c:${w.color};--i:${i}"><div class="top"><span class="logo">${esc(w.short)}</span><span>${esc(w.name)}</span></div><b class="m">${rp(b)}</b><div class="trk"><i style="width:${(Math.max(0, b) / tot) * 100}%"></i></div><small>${pct(Math.max(0, b) / tot)} dari total</small></div>`).join('')}</div>`;
 }
 
