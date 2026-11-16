@@ -70,20 +70,27 @@ export interface Settings {
   receiptMode: 'ai' | 'ocr';
   /** Investment types shown in the portfolio (others are hidden, not deleted). */
   investTypes: string[];
+  /** The user's changes to categories and subcategories (see applyCatEdits). */
+  catEdits: Record<string, CatEdit>;
 }
 
-export const DEFAULT_SETTINGS: Settings = { name: '', onboarded: false, theme: 'system', lpLearned: false, pinHash: '', pinSalt: '', pinLen: 4, bioId: '', lockAfter: 60, cloudEmail: '', cloudLastSync: '', cloudDirty: false, budgets: {}, bookBudgets: {}, books: ['pribadi'], curBook: 'pribadi', receiptMode: 'ai', investTypes: ['saham', 'reksadana', 'obligasi', 'emas', 'deposito', 'kripto'] };
+export const DEFAULT_SETTINGS: Settings = { name: '', onboarded: false, theme: 'system', lpLearned: false, pinHash: '', pinSalt: '', pinLen: 4, bioId: '', lockAfter: 60, cloudEmail: '', cloudLastSync: '', cloudDirty: false, budgets: {}, bookBudgets: {}, books: ['pribadi'], curBook: 'pribadi', receiptMode: 'ai', investTypes: ['saham', 'reksadana', 'obligasi', 'emas', 'deposito', 'kripto'], catEdits: {} };
 
-export interface Category { n: string; c: string; i: string; subs: string[]; inc?: boolean; /** only offered in this book */ book?: string }
+export interface Category { n: string; c: string; i: string; subs: string[]; inc?: boolean; /** only offered in this book */ book?: string; /** not offered in pickers (old transactions keep showing it) */ hidden?: boolean; /** made by the user */ custom?: boolean }
+/** A user's change to a built-in category, or a whole category of their own (custom: true). */
+export interface CatEdit { n?: string; c?: string; i?: string; subs?: string[]; hidden?: boolean; inc?: boolean; custom?: boolean }
 
 export const CATS: Record<string, Category> = {
   makan: { n: 'Makan & Minum', c: '#FF7A45', i: 'utensils', subs: ['Makan siang', 'Kopi & minuman', 'Pesan antar', 'Jajan'] },
   transport: { n: 'Transportasi', c: '#3D8BFF', i: 'fuel', subs: ['Bensin', 'Parkir', 'Ojek online', 'Servis'] },
   belanja: { n: 'Belanja', c: '#E04BB5', i: 'shopping-bag', subs: ['Kebutuhan harian', 'Belanja online', 'Pakaian'] },
+  rumah: { n: 'Tempat tinggal', c: '#0EA5A4', i: 'house', subs: ['Sewa & kos', 'Cicilan rumah', 'Perabot', 'Perbaikan rumah', 'Iuran lingkungan'] },
   tagihan: { n: 'Tagihan', c: '#F0A010', i: 'zap', subs: ['Listrik', 'Internet & pulsa', 'Air', 'Cicilan & paylater'] },
   hiburan: { n: 'Hiburan', c: '#8B5CF6', i: 'clapperboard', subs: ['Nonton', 'Langganan', 'Jalan-jalan'] },
   kesehatan: { n: 'Kesehatan', c: '#F43F5E', i: 'heart-pulse', subs: ['Obat', 'Dokter'] },
   pendidikan: { n: 'Pendidikan', c: '#14B8A6', i: 'graduation-cap', subs: ['Buku', 'Kursus'] },
+  keluarga: { n: 'Keluarga', c: '#EC4899', i: 'users', subs: ['Orang tua', 'Anak & adik', 'Kebutuhan bayi', 'Lainnya'] },
+  asuransi: { n: 'Asuransi & pajak', c: '#6366F1', i: 'shield-check', subs: ['Asuransi', 'BPJS', 'Pajak kendaraan', 'PBB & pajak lain'] },
   sosial: { n: 'Sosial & Ibadah', c: '#22C55E', i: 'hand-heart', subs: ['Infaq & sedekah', 'Arisan', 'Kondangan'] },
   lain: { n: 'Lainnya', c: '#94A3B8', i: 'layout-grid', subs: ['Lainnya', 'Biaya bank'] },
   gaji: { n: 'Gaji', c: '#10B981', i: 'briefcase', subs: ['Gaji bulanan'], inc: true },
@@ -97,11 +104,37 @@ export const CATS: Record<string, Category> = {
   modal: { n: 'Bahan & stok', c: '#B45309', i: 'package', subs: ['Bahan baku', 'Stok barang', 'Kemasan'], book: 'usaha' },
   operasional: { n: 'Operasional', c: '#64748B', i: 'wrench', subs: ['Sewa tempat', 'Gaji karyawan', 'Listrik & air', 'Promosi', 'Ongkir'], book: 'usaha' },
 };
-export const OUT_CATS = Object.keys(CATS).filter((k) => !CATS[k].inc && !CATS[k].book);
-export const IN_CATS = Object.keys(CATS).filter((k) => CATS[k].inc && !CATS[k].book);
+/** The categories as shipped; CATS is this plus the user's edits (see applyCatEdits). */
+export const BASE_CATS: Record<string, Category> = JSON.parse(JSON.stringify(CATS));
+/** General categories offered in pickers (hidden ones left out). Kept as the same arrays, refilled on every edit. */
+export const OUT_CATS: string[] = [];
+export const IN_CATS: string[] = [];
+function refill(): void {
+  OUT_CATS.length = 0; IN_CATS.length = 0;
+  for (const k of Object.keys(CATS)) { const c = CATS[k]; if (c.book || c.hidden) continue; (c.inc ? IN_CATS : OUT_CATS).push(k); }
+}
+refill();
+/**
+ * Rebuild CATS from the built-in set and the user's edits: renamed / recoloured / re-iconed categories, their own
+ * subcategory lists, hidden categories, and categories of their own. CATS is changed in place, so every module
+ * that imported it sees the result.
+ */
+export function applyCatEdits(edits: Record<string, CatEdit> | undefined | null): void {
+  const e = edits || {};
+  for (const k of Object.keys(CATS)) delete CATS[k];
+  for (const [k, base] of Object.entries(BASE_CATS)) {
+    const x = e[k] || {};
+    CATS[k] = { ...base, subs: (x.subs && x.subs.length ? x.subs : base.subs).slice(), ...(x.n ? { n: x.n } : {}), ...(x.c ? { c: x.c } : {}), ...(x.i ? { i: x.i } : {}), ...(x.hidden ? { hidden: true } : {}) };
+  }
+  for (const [k, x] of Object.entries(e)) {
+    if (!x.custom || BASE_CATS[k] || !x.n) continue;
+    CATS[k] = { n: x.n, c: x.c || '#94A3B8', i: x.i || 'layout-grid', subs: x.subs && x.subs.length ? x.subs.slice() : ['Lainnya'], custom: true, ...(x.inc ? { inc: true } : {}), ...(x.hidden ? { hidden: true } : {}) };
+  }
+  refill();
+}
 /** Categories offered in a book: its own first, then the general ones. */
 export function catsFor(book: string, inc: boolean): string[] {
-  const own = Object.keys(CATS).filter((k) => CATS[k].book === book && !!CATS[k].inc === inc);
+  const own = Object.keys(CATS).filter((k) => CATS[k].book === book && !!CATS[k].inc === inc && !CATS[k].hidden);
   return own.concat(inc ? IN_CATS : OUT_CATS);
 }
 
@@ -138,6 +171,18 @@ export const BOOK_KW: Record<string, [RegExp, string, string][]> = {
 // Keyword → category rules for the sentence parser. First match wins, so specific rules come first.
 export const KW: [RegExp, string, string][] = [
   [/\b(air mineral|aqua|le minerale|galon)\b/, 'belanja', 'Kebutuhan harian'], // before "air" (PDAM) and "minum"
+  [/\b(sewa (kos|kost|kamar|rumah|kontrakan|apartemen)|bayar (kos|kost|kontrakan)|uang (kos|kost)|kos|kost|kosan|kontrakan|ngontrak)\b/, 'rumah', 'Sewa & kos'],
+  [/\b(kpr|cicilan rumah|angsuran rumah)\b/, 'rumah', 'Cicilan rumah'],
+  [/\b(kasur|lemari|kursi|meja|rak|kipas|kulkas|dispenser|kompor|perabot|sprei|bantal|gorden|lampu)\b/, 'rumah', 'Perabot'],
+  [/\b(tukang|renovasi|cat rumah|genteng|ledeng|perbaikan rumah|servis ac|service ac)\b/, 'rumah', 'Perbaikan rumah'],
+  [/\b(iuran (rt|rw|sampah|keamanan|kebersihan|lingkungan)|uang sampah|ronda|ipl)\b/, 'rumah', 'Iuran lingkungan'],
+  [/\b(bpjs)\b/, 'asuransi', 'BPJS'],
+  [/\b(asuransi|premi|prudential|allianz|manulife|axa)\b/, 'asuransi', 'Asuransi'],
+  [/\b(pajak (motor|mobil|kendaraan)|stnk|samsat|perpanjang (stnk|sim))\b/, 'asuransi', 'Pajak kendaraan'],
+  [/\b(pbb|pajak|spt)\b/, 'asuransi', 'PBB & pajak lain'],
+  [/\b(popok|pampers|susu formula|bubur bayi|baju bayi|bayi)\b/, 'keluarga', 'Kebutuhan bayi'],
+  [/\b(kirim (ibu|ayah|bapak|mama|papa|ortu|orang tua)|untuk (ibu|ayah|bapak|mama|papa|ortu|orang tua)|ortu|orang tua|mertua)\b/, 'keluarga', 'Orang tua'],
+  [/\b(uang saku|uang jajan|spp|untuk (adik|anak)|jajan (adik|anak))\b/, 'keluarga', 'Anak & adik'],
   [/\b(gofood|grabfood|shopeefood|pesan antar|delivery)\b/, 'makan', 'Pesan antar'],
   [/\b(kopi|ngopi|kopsu|latte|teh|boba|jus|minum|es)\b/, 'makan', 'Kopi & minuman'],
   [/\b(jajan|cemilan|snack|gorengan|roti)\b/, 'makan', 'Jajan'],
@@ -157,7 +202,7 @@ export const KW: [RegExp, string, string][] = [
   [/\b(netflix|spotify|youtube|langganan|disney|vidio)\b/, 'hiburan', 'Langganan'],
   [/\b(liburan|wisata|jalan-jalan|tiket|hotel)\b/, 'hiburan', 'Jalan-jalan'],
   [/\b(obat|apotek|vitamin)\b/, 'kesehatan', 'Obat'],
-  [/\b(dokter|klinik|rumah sakit|rs|periksa|bpjs)\b/, 'kesehatan', 'Dokter'],
+  [/\b(dokter|klinik|rumah sakit|rs|periksa)\b/, 'kesehatan', 'Dokter'],
   [/\b(buku|alat tulis|atk)\b/, 'pendidikan', 'Buku'],
   [/\b(kursus|les|kelas|pelatihan|webinar|seminar)\b/, 'pendidikan', 'Kursus'],
   [/\b(infaq|infak|sedekah|zakat|donasi|masjid|amal)\b/, 'sosial', 'Infaq & sedekah'],

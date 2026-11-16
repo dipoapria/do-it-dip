@@ -229,3 +229,10 @@ body.veil::after{content:"";position:fixed;inset:0;z-index:1999;background:var(-
 .inv-price .field{margin:0!important}
 #invSec .btn-row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 #invSec .btn-row .btn2:only-child{grid-column:1/-1}
+
+/* categories */
+.picker .pk-lab{flex-basis:100%;font-size:11px;font-weight:700;color:var(--ink-3);letter-spacing:.02em}
+.set-row.cat-off{opacity:.5}
+.sub-add{display:flex;gap:8px;align-items:stretch;margin-bottom:14px}
+.sub-add .field{flex:1;min-width:0;margin:0}
+.sub-add .btn2{flex:none;padding:0 14px}

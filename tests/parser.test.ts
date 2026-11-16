@@ -94,3 +94,26 @@ test('book keywords: Usaha and Freelance categories only inside their book', asy
   assert.deepEqual(catsFor('usaha', true).slice(0, 1), ['penjualan']);
   assert.equal(catsFor('pribadi', false).length, OUT_CATS.length);
 });
+
+test('housing, family, insurance categories; counts are not money; learned phrases', async () => {
+  const { learnKey, highlightHTML } = await import('../src/parser.ts');
+  const { applyCatEdits, CATS, OUT_CATS } = await import('../src/model.ts');
+  let p = parseLine('sewa kos 3 bulan 2,25jt', ctx);
+  assert.equal(p.amount, 2_250_000); assert.equal(p.cat, 'rumah'); assert.equal(p.sub, 'Sewa & kos');
+  assert.equal(parseLine('bpjs 150rb', ctx).cat, 'asuransi');
+  assert.equal(parseLine('pajak motor 250rb', ctx).sub, 'Pajak kendaraan');
+  assert.equal(parseLine('kirim ibu 500rb bsb', ctx).cat, 'keluarga');
+  assert.equal(parseLine('popok 85rb', ctx).sub, 'Kebutuhan bayi');
+  assert.ok(!/h-amt[^>]*>3</.test(highlightHTML('sewa kos 3 bulan 2,25jt', ctx, null).html));
+  assert.equal(learnKey('Sewa kos 3 bulan'), 'sewa kos');
+  assert.equal(learnKey('Kopi'), 'kopi');
+  const taught = { ...ctx, learned: { 'sewa mobil': { cat: 'transport', sub: 'Servis' }, sewa: { cat: 'tagihan', sub: 'Listrik' } } };
+  assert.equal(parseLine('sewa mobil 300rb', taught).cat, 'transport'); // the phrase wins over the single word
+  // user edits: rename, own subcategories, hide, and a category of their own
+  applyCatEdits({ makan: { n: 'Makan', subs: ['Warteg', 'Kopi'] }, hiburan: { hidden: true }, 'c-hobi': { custom: true, n: 'Hobi', c: '#000', i: 'gem', subs: ['Mancing'] } });
+  assert.equal(CATS.makan.n, 'Makan'); assert.deepEqual(CATS.makan.subs, ['Warteg', 'Kopi']);
+  assert.ok(!OUT_CATS.includes('hiburan') && CATS.hiburan.hidden);
+  assert.ok(OUT_CATS.includes('c-hobi') && CATS['c-hobi'].custom);
+  applyCatEdits({});
+  assert.equal(CATS.makan.n, 'Makan & Minum'); assert.ok(OUT_CATS.includes('hiburan') && !CATS['c-hobi']);
+});

@@ -1,7 +1,7 @@
 // Local storage on the device (IndexedDB via Dexie). The UI reads the in-memory `data`;
 // every change is written to memory first (instant UI) and then persisted.
 import Dexie, { type Table } from 'dexie';
-import { DEFAULT_SETTINGS, type Settings, type Tx, type Wallet } from './model.ts';
+import { applyCatEdits, DEFAULT_SETTINGS, type Settings, type Tx, type Wallet } from './model.ts';
 import type { Rule } from './recurring.ts';
 import type { Debt, Goal } from './plan.ts';
 import type { Asset } from './invest.ts';
@@ -68,6 +68,7 @@ export async function load(): Promise<void> {
   data.goals = g;
   data.debts = d;
   data.assets = await db.assets.toArray();
+  applyCatEdits(data.settings.catEdits);
   data.learned = Object.fromEntries(l.map((x) => [x.word, { cat: x.cat, sub: x.sub }]));
   data.settings = { ...DEFAULT_SETTINGS, ...Object.fromEntries(s.map((x) => [x.key, x.value])) } as Settings;
 }
@@ -203,6 +204,12 @@ export function setSetting<K extends keyof Settings>(key: K, value: Settings[K])
   data.settings[key] = value;
   db.settings.put({ key, value }).catch(fail);
   if (!DEVICE_KEYS.includes(key) && key !== 'onboarded') changed();
+}
+
+/** Save the user's category changes and rebuild the category list from them. */
+export function setCatEdits(edits: Settings['catEdits']): void {
+  setSetting('catEdits', edits);
+  applyCatEdits(edits);
 }
 
 /* ---------- backup ---------- */

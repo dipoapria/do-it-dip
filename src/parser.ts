@@ -95,19 +95,38 @@ export function parseLine(raw: string, ctx: ParseCtx): Parsed {
   }
   if (found.length) r.wallet = found[0].k;
 
-  const words = t.match(/[a-z]+/g) || [];
+  const words: string[] = t.match(/[a-z]+/g) || [];
   let hit: { cat: string; sub: string } | null = null;
-  for (const w of words) { if (ctx.learned[w]) { hit = { ...ctx.learned[w] }; r.learned = true; break; } }
-  if (!hit) for (const [rx, c, s] of ctx.kw || []) if (rx.test(t)) { hit = { cat: c, sub: s }; break; }
-  if (!hit) for (const [rx, c, s] of KW_IN) if (rx.test(t)) { hit = { cat: c, sub: s }; break; }
+  // what the user taught: phrases ("sewa kos") win over single words, longer ones first
+  for (const k of Object.keys(ctx.learned).sort((a, b) => b.length - a.length)) {
+    if (k.includes(' ') ? new RegExp('\\b' + reEsc(k).replace(/ /g, '\\s+') + '\\b').test(t) : words.includes(k)) { hit = { ...ctx.learned[k] }; r.learned = true; break; }
+  }
+  if (hit && !CATS[hit.cat]) { hit = null; r.learned = false; } // taught a category that no longer exists
+  // built-in rules never lead into a category the user has hidden
+  const open = (c: string) => !!CATS[c] && !CATS[c].hidden;
+  if (!hit) for (const [rx, c, s] of ctx.kw || []) if (open(c) && rx.test(t)) { hit = { cat: c, sub: s }; break; }
+  if (!hit) for (const [rx, c, s] of KW_IN) if (open(c) && rx.test(t)) { hit = { cat: c, sub: s }; break; }
   if (!hit && /\b(terima|dapat|dapet|diterima|pemasukan|jual|masuk)\b/.test(t)) hit = { cat: 'masuk_lain', sub: 'Lainnya' };
-  if (!hit) for (const [rx, c, s] of KW) if (rx.test(t)) { hit = { cat: c, sub: s }; break; }
+  if (!hit) for (const [rx, c, s] of KW) if (open(c) && rx.test(t)) { hit = { cat: c, sub: s }; break; }
   if (!hit) hit = { cat: 'lain', sub: 'Lainnya' };
+  // the user may have removed or replaced that subcategory
+  if (!CATS[hit.cat].subs.includes(hit.sub)) hit.sub = CATS[hit.cat].subs[0];
   r.cat = hit.cat; r.sub = hit.sub; r.type = CATS[r.cat]?.inc ? 'in' : 'out';
   if (!found.length) r.wallet = r.type === 'in' ? ctx.defaults.bank : ctx.defaults.cash;
   const note = t.replace(STOP, ' ').replace(/[^a-z0-9&\- ]/g, ' ').replace(/\s+/g, ' ').trim();
   r.note = note ? note.charAt(0).toUpperCase() + note.slice(1) : (r.sub || '');
   return r;
+}
+
+const COUNT_WORD = /^\s*(bulan|bln|hari|minggu|tahun|thn|kali|orang|org|pcs|buah|bungkus|bks|porsi|kg|gr|gram|liter|lot|lembar|botol|kaleng|dus|pak|pack)\b/i;
+const SKIP_KEY = new Set(['bulan', 'bln', 'hari', 'minggu', 'tahun', 'thn', 'kali', 'untuk', 'buat', 'bayar', 'beli', 'yang', 'dan', 'dari', 'pakai', 'tunai', 'rupiah']);
+/**
+ * What to remember when the user corrects a category: the first two meaningful words of the note ("Sewa kos 3 bulan"
+ * → "sewa kos"), so "sewa mobil" is not swept along; a one-word note is remembered as that word.
+ */
+export function learnKey(note: string): string {
+  const ws = (note.toLowerCase().match(/[a-z]+/g) || []).filter((w) => w.length >= 3 && !SKIP_KEY.has(w));
+  return ws.slice(0, 2).join(' ');
 }
 
 export function parseText(text: string, ctx: ParseCtx): Parsed[] {
@@ -137,6 +156,8 @@ export function highlightHTML(text: string, ctx: ParseCtx, prev: Set<string> | n
   const taken: typeof ranges = [];
   for (const r of ranges) {
     if (r.cls === 'h-amt' && !/\d/.test(text.slice(r.s, r.e))) continue;
+    // "3 bulan", "2 orang", "5 kg": a count, not money
+    if (r.cls === 'h-amt' && /^\d{1,3}$/.test(text.slice(r.s, r.e).trim()) && COUNT_WORD.test(text.slice(r.e))) continue;
     if (!taken.some((x) => r.s < x.e && r.e > x.s)) taken.push(r);
   }
   taken.sort((a, b) => a.s - b.s);
