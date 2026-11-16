@@ -876,9 +876,19 @@ function toast(msg, undo) {
 }
 
 /* ================= sheets ================= */
+/** Set right before openSheet by sheets that redraw themselves (asset, goal, debt): the same sheet is then updated in
+ *  place, without sliding up again and without losing the scroll position. */
+let sheetKey = null;
 function openSheet(title, body) {
-  const L = $('layer');
-  L.innerHTML = `<div class="backdrop" data-a="close"></div><div class="sheet" role="dialog" aria-label="${esc(title)}"><div class="grabzone"><div class="grab"></div><div class="sheet-h"><h3>${esc(title)}</h3><button class="icon-btn" data-a="close" aria-label="Tutup"><i data-lucide="x"></i></button></div></div><div class="sheet-body">${body}</div></div>`; icons();
+  const L = $('layer'), key = sheetKey; sheetKey = null;
+  const cur = key ? L.querySelector('.sheet') : null;
+  if (cur && cur.dataset.key === key) {
+    const sb = cur.querySelector('.sheet-body'), sc = sb.scrollTop;
+    cur.querySelector('.sheet-h h3').textContent = title; cur.setAttribute('aria-label', title);
+    sb.innerHTML = body; icons(); sb.scrollTop = sc;
+    return;
+  }
+  L.innerHTML = `<div class="backdrop" data-a="close"></div><div class="sheet" data-key="${key || ''}" role="dialog" aria-label="${esc(title)}"><div class="grabzone"><div class="grab"></div><div class="sheet-h"><h3>${esc(title)}</h3><button class="icon-btn" data-a="close" aria-label="Tutup"><i data-lucide="x"></i></button></div></div><div class="sheet-body">${body}</div></div>`; icons();
   const sh = L.querySelector('.sheet'), bd = L.querySelector('.backdrop');
   drag(L.querySelector('.grabzone'), {
     move(st, e) { if (e.cancelable) e.preventDefault(); const y = st.dy > 0 ? st.dy : -rubber(-st.dy, 30); sh.style.animation = 'none'; sh.style.transition = 'none'; sh.style.transform = `translateY(${y}px)`; bd.style.opacity = String(1 - Math.max(0, y) / sh.offsetHeight); },
@@ -1181,6 +1191,7 @@ function sGoal(id) {
   const g = store.data.goals.find((x) => x.id === id); if (!g) return;
   const p = goalPct(g), need = monthlyNeed(g, T()), eta = etaMonths(g, T()), left = goalLeft(g);
   const log = g.log.slice().reverse().slice(0, 8);
+  sheetKey = 'goal:' + id;
   openSheet(g.name, `<div class="det-top">${ring(p, g.color, 120, 11, `<i data-lucide="${g.icon}"></i><b class="gpct">${pct(p)}</b>`)}<div class="a">${money(goalSaved(g))}</div><p>dari ${money(g.target)}</p></div>
     <div class="card" style="padding:4px 14px">
       <div class="kv" style="border-top:0"><span>Kurang</span><b>${money(left)}</b></div>
@@ -1241,6 +1252,7 @@ function sDebt(id) {
   const left = debtLeft(d, TX()), paid = debtPaid(d, TX()), u = d.kind === 'utang', list = sorted(TX().filter((t) => t.debt === d.id));
   PF = { id, wallet: PF?.id === id ? PF.wallet : d.wallet || defaults().bank };
   const sug = Math.min(d.monthly || left, left);
+  sheetKey = 'debt:' + id;
   openSheet(debtLabel(d).replace(/^(Utang|Piutang) ke /, u ? 'Utang ke ' : 'Piutang: '), `<div class="det-top"><span class="ic" style="--c:${DEBT_C[d.kind]}"><i data-lucide="${u ? 'hand-coins' : 'handshake'}"></i></span>
       <div class="a" style="color:${left ? (u ? 'var(--out)' : 'var(--in)') : 'var(--ink)'}">${left ? money(left) : 'Lunas'}</div><p>${left ? (u ? 'sisa yang harus dibayar' : 'belum dikembalikan') : `${u ? 'sudah dibayar' : 'sudah kembali'} semua`}</p>
       <span class="dbar big"><i style="width:${d.amount ? Math.round((paid / d.amount) * 100) : 100}%;background:${DEBT_C[d.kind]}"></i></span></div>
@@ -1376,6 +1388,7 @@ function sAsset(id) {
   if (IF.mode === 'sell' && !p.units) IF.mode = 'buy';
   const m = IF.mode, lotNote = t.lot ? ` (1 lot = ${t.lot} lembar)` : '';
   const wchips = (extra) => `<div class="hscroll">${WL().map((w) => `<button class="chip ${IF.wallet === w.id ? 'on' : ''}" data-a="ifWallet" data-v="${w.id}"><i data-lucide="${WALLET_ICON[w.group]}"></i>${esc(w.name)}</button>`).join('')}${extra || ''}</div>`;
+  sheetKey = 'asset:' + id;
   openSheet(a.name, `<div class="det-top"><span class="ic" style="--c:${t.c}"><i data-lucide="${t.i}"></i></span><div class="a">${money(p.value)}</div>
       <p>${p.units ? `${unitsLabel(a, p.units)} · <span class="${p.gain >= 0 ? 'up' : 'down'}">${signed(p.gain)}${pctSigned(p.gainPct)}</span>` : 'Tidak ada kepemilikan saat ini'}</p></div>
     <div class="card" style="padding:4px 14px">
