@@ -27,7 +27,7 @@ import { KW } from './model.ts';
 import { initDesk, render as renderDesk, sync as syncDesk } from './desk.ts';
 import { gridHTML, monthSums, pickerHTML, sumsHTML } from './calview.ts';
 import { addDays, addMonths, BLN, BULAN, dayLabel, daysIn, digitsOnly, esc, fmtN, HARI, HARI_P, longDate, monthName, pad, pct, rp, shortTxt, toD, todayStr } from './format.ts';
-import { BASE_CATS, BOOK_KW, BOOKS, CATS, catsFor, DEFAULT_WALLETS, IN_CATS, OUT_CATS, WALLET_COLORS, WALLET_ICON } from './model.ts';
+import { BASE_CATS, BOOK_KW, BOOKS, CATS, catsFor, IN_CATS, WALLET_CATALOG, OUT_CATS, WALLET_COLORS, WALLET_ICON } from './model.ts';
 import { highlightHTML, learnKey, parseText } from './parser.ts';
 import { balance, monthList, stats } from './stats.ts';
 import * as store from './store.ts';
@@ -165,7 +165,7 @@ function vHome() {
     </div>
     <div class="save-meter">${st.inc ? `Sisa ${pct(rate)} dari pemasukan bulan ini` : 'Belum ada pemasukan bulan ini'}<div class="bar"><i style="width:${Math.min(100, rate * 100)}%"></i></div></div>
   </section>
-  <button class="smart st" style="--i:2" data-a="add" data-mode="kalimat"><span class="spark"><i data-lucide="sparkles"></i></span><span class="ph">Ketik saja, misalnya <em>“kopi 18rb gopay”</em></span><span class="go">Catat</span></button>
+  <button class="smart st" style="--i:2" data-a="add" data-mode="kalimat"><span class="spark"><i data-lucide="sparkles"></i></span><span class="ph">Ketik saja, misalnya <em>“${esc(examples()[0].replace(' susu', ''))}”</em></span><span class="go">Catat</span></button>
   <div class="tip st" style="--i:2"><i data-lucide="arrow-down"></i>atau tarik layar ke bawah</div>
   <div class="quick st" style="--i:3">
     <button data-a="add" data-mode="manual"><span class="qi" style="--c:#3D8BFF"><i data-lucide="keyboard"></i></span>Manual</button>
@@ -180,7 +180,7 @@ function vHome() {
   <div class="card st" style="--i:4">
     <div class="week">${week.map((w, i) => `<div class="d ${w.d === today ? 'today' : ''}"><div class="b" style="height:${Math.max(6, (w.v / wmax) * 64)}px;--i:${i}"></div>${HARI[toD(w.d).getDay()]}</div>`).join('')}</div></div>
   <div class="sec-h"><h3>Transaksi terbaru</h3>${recent.length ? '<small>tahan baris untuk aksi cepat</small>' : ''}</div>
-  ${recent.length ? grouped(recent) : `<div class="empty-card"><b>Belum ada transaksi</b>Ketuk kotak di atas dan tulis misalnya <code>kopi 18rb gopay</code>, atau tarik layar ke bawah.</div>`}</div>`;
+  ${recent.length ? grouped(recent) : `<div class="empty-card"><b>Belum ada transaksi</b>Ketuk kotak di atas dan tulis misalnya <code>${esc(examples()[0].replace(' susu', ''))}</code>, atau tarik layar ke bawah.</div>`}</div>`;
 }
 
 function donut(parts, total) {
@@ -788,7 +788,7 @@ function mImpor() {
   const pickBtn = `<div class="btn-row" style="width:100%"><label class="btn2 primaryish" for="impFile"><i data-lucide="file-spreadsheet"></i>File mutasi</label><label class="btn2" for="impShot"><i data-lucide="image-plus"></i>Screenshot</label></div>
     <input type="file" id="impFile" accept=".csv,.txt,.xlsx,.pdf,text/csv,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden><input type="file" id="impShot" accept="image/*" hidden>`;
   if (s.phase === 'idle') return head + `<div class="drop"><span class="ic" style="--c:#10B981"><i data-lucide="file-spreadsheet"></i></span><b>Impor mutasi rekening</b>
-    <small><b>File mutasi:</b> CSV, Excel .xlsx, atau PDF dari aplikasi bank (misalnya PermataMobile X → Mutasi Transaksi → unduh PDF).<br><b>Screenshot:</b> untuk bank tanpa fitur unduh mutasi, tangkap layar riwayat transaksi di aplikasi bank.<br>Transaksi dikelompokkan otomatis dan bisa diperiksa sebelum disimpan. File hanya dibaca di HP ini.</small>${pickBtn}</div>`;
+    <small><b>File mutasi:</b> CSV, Excel .xlsx, atau PDF dari aplikasi bank (biasanya menu Mutasi atau Riwayat transaksi → unduh/ekspor).<br><b>Screenshot:</b> untuk bank tanpa fitur unduh mutasi, tangkap layar riwayat transaksi di aplikasi bank.<br>Transaksi dikelompokkan otomatis dan bisa diperiksa sebelum disimpan. File hanya dibaca di HP ini.</small>${pickBtn}</div>`;
   if (s.phase === 'reading') return head + `<div class="drop"><span class="ic spin-ic" style="--c:#10B981"><i data-lucide="scan-line"></i></span><b>Membaca ${esc(s.fileName)}…</b><small id="impLbl"></small></div>`;
   if (s.phase === 'pw') return head + `<div class="drop"><span class="ic" style="--c:#F0A010"><i data-lucide="key-round"></i></span><b>File dikunci kata sandi</b>
     <small>${s.pwWrong ? '<b style="color:var(--out)">Kata sandi salah.</b> ' : ''}E-statement bank biasanya dikunci dengan tanggal lahir atau kata sandi dari email bank. Kata sandi hanya dipakai untuk membuka file ini dan tidak disimpan.</small>
@@ -824,19 +824,24 @@ async function startImport(file, password) {
   if (S.mode === 'impor' && !$('composer').hidden) { rerenderMode(); if (S.imp.phase === 'pw') later(100, () => $('impPw')?.focus()); }
 }
 
-const EXAMPLES = ['kopi susu 18rb gopay', 'makan siang 25rb', 'bensin 40rb tunai kemarin', 'gaji 5,2jt masuk sumsel', 'topup dana 100rb dari permata', 'token listrik 200rb', 'tarik tunai 300rb'];
+/** Example sentences using the person's own wallets (shortest alias), so nobody sees someone else's bank. */
+function examples() {
+  const nick = (g) => { const w = WL().find((x) => x.group === g); return w ? (w.aliases || []).concat(w.name.toLowerCase()).sort((a, b) => a.length - b.length)[0] : ''; };
+  const bank = nick('Bank'), ew = nick('E-wallet');
+  return [`kopi susu 18rb ${ew || 'tunai'}`, 'makan siang 25rb', 'bensin 40rb tunai kemarin', bank ? `gaji 5,2jt masuk ${bank}` : 'gaji 5,2jt', ew && bank ? `topup ${ew} 100rb dari ${bank}` : '', 'token listrik 200rb', 'tarik tunai 300rb'].filter(Boolean);
+}
 function mKalimat() {
   return `<label class="lab" for="nl">Tulis seperti chat. Satu baris untuk satu transaksi.</label>
   <div class="nlbox"><div class="hl nlf" id="hl" aria-hidden="true"></div><textarea id="nl" class="nlf" rows="3" autocomplete="off" autocapitalize="off" spellcheck="false">${esc(S.nl)}</textarea></div>
   <div class="hl-legend"><span class="h-amt">nominal</span><span class="h-cat">kategori</span><span class="h-wal">dompet</span><span class="h-date">tanggal</span></div>
-  <div class="ex hscroll">${EXAMPLES.map((e) => `<button data-a="ex" data-v="${esc(e)}">+ ${esc(e)}</button>`).join('')}</div>
+  <div class="ex hscroll">${examples().map((e) => `<button data-a="ex" data-v="${esc(e)}">+ ${esc(e)}</button>`).join('')}</div>
   <div id="preview">${pvHTML()}</div>`;
 }
 function syncHL() { const hl = $('hl'), nl = $('nl'); if (!hl || !nl) return; nl.style.height = 'auto'; nl.style.height = Math.max(112, nl.scrollHeight + 3) + 'px'; const r = highlightHTML(nl.value, ctx(), S.prevMarks); S.prevMarks = r.seen; hl.innerHTML = r.html; hl.scrollTop = nl.scrollTop; }
 let typeT = null;
 function startType() {
   stopType(); if (!$('nl')) return; let ei = 0, ci = 0, del = false;
-  const tick = () => { const nl = $('nl'); if (!nl) { stopType(); return; } const ex = EXAMPLES[ei]; if (!del) { ci++; if (ci > ex.length + 14) del = true; } else { ci -= 2; if (ci <= 0) { ci = 0; del = false; ei = (ei + 1) % EXAMPLES.length; } } nl.placeholder = 'mis. ' + ex.slice(0, Math.min(ci, ex.length)) + (ci <= ex.length && !del ? '▍' : ''); typeT = setTimeout(tick, del ? 28 : 70); };
+  const tick = () => { const nl = $('nl'); if (!nl) { stopType(); return; } const EX = examples(), ex = EX[ei % EX.length]; if (!del) { ci++; if (ci > ex.length + 14) del = true; } else { ci -= 2; if (ci <= 0) { ci = 0; del = false; ei = (ei + 1) % examples().length; } } nl.placeholder = 'mis. ' + ex.slice(0, Math.min(ci, ex.length)) + (ci <= ex.length && !del ? '▍' : ''); typeT = setTimeout(tick, del ? 28 : 70); };
   tick();
 }
 function stopType() { clearTimeout(typeT); typeT = null; }
@@ -1021,6 +1026,22 @@ function activateBook(b) {
 function sConfirm(title, text, okLabel, fn) {
   S.confirmFn = fn;
   openSheet(title, `<p class="confirm-text">${text}</p><div class="btn-row"><button class="btn2" data-a="close">Batal</button><button class="btn2" style="color:#fff;background:var(--out)" data-a="confirmOk">${esc(okLabel)}</button></div>`);
+}
+function pwInner(err = '', busy = false) {
+  return `<p class="confirm-text" style="margin-top:0">Untuk akun <b>${esc(store.data.settings.cloudEmail)}</b>. Kata sandi baru dipakai di semua perangkat yang tersambung.</p>
+    <span class="lab">Kata sandi baru</span><input class="field" id="pwNew" type="password" autocomplete="new-password" placeholder="Minimal 8 karakter">
+    <span class="lab">Ulangi kata sandi baru</span><input class="field" id="pwNew2" type="password" autocomplete="new-password" placeholder="Ketik sekali lagi">
+    ${err ? `<p class="form-note" style="color:var(--out)">${esc(err)}</p>` : '<p class="form-note">Simpan di iCloud Keychain supaya terisi otomatis saat masuk di perangkat lain.</p>'}
+    <button class="primary" data-a="pwSave" ${busy ? 'disabled' : ''}><i data-lucide="check"></i>${busy ? 'Menyimpan…' : 'Simpan kata sandi'}</button>`;
+}
+function sPassword() { sheetKey = 'pw'; openSheet('Ganti kata sandi', `<div id="pwBody">${pwInner()}</div>`); later(350, () => $('pwNew')?.focus()); }
+function pwDraw(err, busy) { const b = $('pwBody'); if (!b) return; const a = $('pwNew')?.value || '', c = $('pwNew2')?.value || ''; b.innerHTML = pwInner(err, busy); icons(); $('pwNew').value = a; $('pwNew2').value = c; }
+function savePassword() {
+  const a = $('pwNew')?.value || '', c = $('pwNew2')?.value || '';
+  if (a.length < 8) return pwDraw('Kata sandi minimal 8 karakter.');
+  if (a !== c) return pwDraw('Kedua kata sandi belum sama.');
+  pwDraw('', true);
+  cloud.changePassword(a).then(() => { closeSheet(); toast('Kata sandi diganti'); }).catch((e) => pwDraw(cloud.cloudError(e)));
 }
 function sRename() {
   openSheet('Nama sapaan', `<input class="field" id="renameIn" maxlength="24" value="${esc(store.data.settings.name)}" placeholder="Nama panggilan" autocomplete="off"><button class="primary" data-a="renameSave"><i data-lucide="check"></i>Simpan</button>`);
@@ -1611,7 +1632,8 @@ function cloudCardHTML() {
   const st = C.state === 'syncing' ? ['Menyinkronkan…', ''] : C.state === 'error' ? ['Gagal', 'bad'] : set.cloudDirty ? ['Belum terkirim', 'warn'] : ['Tersinkron', 'good'];
   return `<div class="card"><h4>Cadangan online <span class="status ${st[1]}" id="cloudStatus">${st[0]}</span></h4>
     <p class="about" style="margin:0">Tersambung sebagai <b>${esc(set.cloudEmail)}</b>. Disinkronkan ${ago(set.cloudLastSync)}.${C.state === 'error' ? `<br><span style="color:var(--out)">${esc(C.err)}</span>` : ''}</p>
-    <div class="btn-row"><button class="btn2" data-a="cloudSync"><i data-lucide="refresh-cw"></i>Sinkronkan sekarang</button><button class="btn2" data-a="cloudOut"><i data-lucide="log-out"></i>Putuskan</button></div></div>`;
+    <div class="btn-row"><button class="btn2" data-a="cloudSync"><i data-lucide="refresh-cw"></i>Sinkronkan sekarang</button><button class="btn2" data-a="cloudOut"><i data-lucide="log-out"></i>Putuskan</button></div>
+    <button class="btn2 wide" data-a="pwOpen" style="margin-top:8px"><i data-lucide="key-round"></i>Ganti kata sandi</button></div>`;
 }
 const newForm = (mode = 'in', email = '') => ({ mode, email, busy: false, err: '', info: '' });
 function cloudFormHTML() {
@@ -1696,7 +1718,7 @@ function afterDataReset() {
 
 /* ================= onboarding ================= */
 function showOnboarding() {
-  S.ob = { step: 0, name: store.data.settings.name || '', wallets: DEFAULT_WALLETS.map((w) => ({ ...w, init: '', on: true })) };
+  S.ob = { step: 0, name: store.data.settings.name || '', wallets: WALLET_CATALOG.filter((w) => w.id === 'tunai').map((w) => ({ ...w, init: '', on: true })) };
   renderOnb(); $('onb').hidden = false;
 }
 function renderOnb() {
@@ -1705,7 +1727,7 @@ function renderOnb() {
     el.innerHTML = `<div class="step">
       <div class="onb-hero"><img class="onb-logo" src="./icons/logo-152.png" alt="Logo Do it Dip" width="76" height="76"><h1>Halo! Selamat datang di <span>Do it Dip</span></h1>
       <p>Catat pemasukan dan pengeluaran cukup dengan satu kalimat, lalu lihat rekapnya sampai ke tiap transaksi. Semua data tersimpan di perangkat ini.</p></div>
-      <span class="lab" style="margin-top:6px">Nama panggilan</span><input class="field" id="obName" maxlength="24" value="${esc(ob.name)}" placeholder="mis. Dipo" autocomplete="off"></div>
+      <span class="lab" style="margin-top:6px">Nama panggilan</span><input class="field" id="obName" maxlength="24" value="${esc(ob.name)}" placeholder="Nama panggilanmu" autocomplete="off"></div>
       <div class="spacer"></div>
       <button class="primary" data-a="obNext"><i data-lucide="arrow-right"></i>Lanjut</button>
       <button class="btn2" style="margin-top:10px;width:100%" data-a="obCloud"><i data-lucide="cloud-download"></i>Sudah pakai di perangkat lain? Masuk ke cadangan online</button>
@@ -1717,11 +1739,13 @@ function renderOnb() {
       <button class="btn2" style="margin-top:10px;width:100%;background:none" data-a="obBack"><i data-lucide="chevron-left"></i>Kembali</button>`;
   } else {
     el.innerHTML = `<div class="step">
-      <h1 style="font-size:28px;margin-bottom:8px">Saldo awal dompetmu</h1>
-      <p style="margin-bottom:16px">Isi saldo saat ini di setiap dompet. Dompet yang tidak kamu pakai bisa dimatikan; bank dan e-wallet lain bisa ditambah nanti di tab Dompet.</p>
+      <h1 style="font-size:28px;margin-bottom:8px">Dompet & saldo awal</h1>
+      <p style="margin-bottom:12px">Ketuk bank dan e-wallet yang kamu pakai, lalu isi saldonya saat ini. Yang tidak ada di daftar bisa ditambah nanti di tab Dompet.</p>
+      ${['Bank', 'E-wallet'].map((g) => `<span class="lab">${g === 'Bank' ? 'Bank' : 'E-wallet'}</span><div class="ob-pick">${WALLET_CATALOG.filter((w) => w.group === g).map((w) => { const on = ob.wallets.some((x) => x.id === w.id); return `<button class="chip ${on ? 'on' : ''}" data-a="obPick" data-id="${w.id}" style="--c:${w.color}"><span class="wdot"></span>${esc(w.name)}${on ? '<i data-lucide="check"></i>' : ''}</button>`; }).join('')}</div>`).join('')}
+      <span class="lab">Saldo saat ini</span>
       <div class="card" style="padding:6px 14px">${ob.wallets.map((w, i) => `<div class="ob-wallet ${w.on ? '' : 'off'}"><span class="wlogo" style="--c:${w.color}">${esc(w.short)}</span><span class="nm">${esc(w.name)}<small>${w.group}</small></span>
         <input id="obw-${i}" inputmode="numeric" placeholder="Rp0" value="${w.init ? fmtN(Number(w.init)) : ''}" aria-label="Saldo awal ${esc(w.name)}" autocomplete="off">
-        <button class="rm" data-a="obToggle" data-i="${i}" aria-label="${w.on ? 'Matikan' : 'Aktifkan'} ${esc(w.name)}"><i data-lucide="${w.on ? 'x' : 'plus'}"></i></button></div>`).join('')}</div></div>
+        <button class="rm" data-a="obToggle" data-i="${i}" aria-label="Hapus ${esc(w.name)}"><i data-lucide="x"></i></button></div>`).join('')}</div></div>
       <div class="spacer"></div>
       <button class="primary" data-a="obDone"><i data-lucide="check"></i>Mulai mencatat</button>
       <button class="btn2" style="margin-top:10px;width:100%;background:none" data-a="obBack"><i data-lucide="chevron-left"></i>Kembali</button>`;
@@ -1730,7 +1754,7 @@ function renderOnb() {
 }
 async function finishOnboarding() {
   const ob = S.ob, chosen = ob.wallets.filter((w) => w.on);
-  if (!chosen.length) { toast('Aktifkan minimal satu dompet'); return; }
+  if (!chosen.length) { toast('Pilih minimal satu dompet'); return; }
   const ws = chosen.map((w, i) => ({ id: w.id, name: w.name, short: w.short, group: w.group, color: w.color, order: i, aliases: w.aliases, init: Number(w.init) || 0, book: 'pribadi' }));
   await store.saveWallets(ws);
   store.setSetting('name', ob.name.trim());
@@ -1784,6 +1808,8 @@ function bindEvents() {
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') { if ($('layer').innerHTML) closeSheet(); else if (!$('composer').hidden) closeComposer(); else if (!$('drill').hidden) closeDrill(); return; }
     if (e.key === 'Enter' && e.target.id === 'cfSub') { e.preventDefault(); cfAddSub(); return; }
+    if (e.key === 'Enter' && e.target.id === 'pwNew') { e.preventDefault(); $('pwNew2')?.focus(); return; }
+    if (e.key === 'Enter' && e.target.id === 'pwNew2') { e.preventDefault(); savePassword(); return; }
     if (e.key === 'Enter' && e.target.id === 'renameIn') { e.preventDefault(); onClick({ target: document.querySelector('[data-a="renameSave"]') }); return; }
     if ((e.target.closest && e.target.closest('textarea,input')) || !$('composer').hidden || $('layer').innerHTML || !$('onb').hidden) return;
     if (document.body.classList.contains('desk') && !document.body.classList.contains('phone-open')) return;
@@ -1878,6 +1904,8 @@ function onClick(e) {
     case 'theme': setTheme(d.t, el); break;
     case 'receiptMode': store.setSetting('receiptMode', d.v); { const sc = PANELS[3].scrollTop; renderPanel(3); icons(); PANELS[3].scrollTop = sc; later(30, () => placePill($('rcSeg'))); } break;
     case 'rename': sRename(); break;
+    case 'pwOpen': sPassword(); break;
+    case 'pwSave': savePassword(); break;
     case 'renameSave': { const v = $('renameIn').value.trim(); store.setSetting('name', v); closeSheet(); refresh(); toast('Nama disimpan'); break; }
     case 'unlearn': store.unlearn(d.w); renderPanel(3); icons(); toast(`“${d.w}” dilupakan`); break;
     case 'wipe': sConfirm('Hapus semua data?', 'Semua transaksi, dompet, dan pengaturan di perangkat ini akan dihapus permanen dan <b>tidak bisa dibatalkan</b>. Ekspor cadangan dulu jika masih ingin menyimpannya.', 'Hapus semua', async () => { if (cloudOn()) { try { await cloud.signOut(); } catch {} } await store.wipe(); afterDataReset(); }); break;
@@ -2037,7 +2065,13 @@ function onClick(e) {
     /* onboarding */
     case 'obNext': S.ob.name = $('obName').value; S.ob.step = 1; renderOnb(); break;
     case 'obBack': S.ob.step = 0; renderOnb(); break;
-    case 'obToggle': { const w = S.ob.wallets[Number(d.i)]; w.on = !w.on; renderOnb(); break; }
+    case 'obToggle': { S.ob.wallets.splice(Number(d.i), 1); renderOnb(); break; }
+    case 'obPick': {
+      const ws = S.ob.wallets, i = ws.findIndex((w) => w.id === d.id);
+      if (i >= 0) ws.splice(i, 1);
+      else { const w = WALLET_CATALOG.find((x) => x.id === d.id); const cash = ws.findIndex((x) => x.id === 'tunai'); ws.splice(cash < 0 ? ws.length : cash, 0, { ...w, init: '', on: true }); }
+      const sc = $('onb').scrollTop; renderOnb(); $('onb').scrollTop = sc; break;
+    }
     case 'obDone': finishOnboarding(); break;
     case 'ruleNew': sRuleFromTx(d.id); break;
     case 'ruleEdit': { const r = store.data.rules.find((x) => x.id === d.id); if (r) sRuleForm(r, false); break; }

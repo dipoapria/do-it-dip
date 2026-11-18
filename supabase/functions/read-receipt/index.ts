@@ -1,5 +1,5 @@
 // Supabase Edge Function: read a receipt photo with Gemini and return its products, prices and total as JSON.
-// The Gemini API key lives only here, as the secret GEMINI_API_KEY; the app never sees it.
+// Gemini API keys live only here, as Supabase secrets (one per account, see keyFor); the app never sees them.
 // Only signed-in users of this Supabase project can call it (Supabase checks the login token before this runs).
 //
 // Deploy: Supabase dashboard → Edge Functions → Deploy a new function → "Via Editor", name it read-receipt,
@@ -76,11 +76,37 @@ async function ask(model: string, key: string, image: string, mime: string, thin
   return await fetch(`${API}/${model}:generateContent`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key }, body: JSON.stringify(body) });
 }
 
+/** Email of the signed-in caller, from the login token Supabase already verified (Verify JWT on). */
+function emailOf(req: Request): string {
+  try {
+    const tok = (req.headers.get('authorization') ?? '').replace(/^Bearer\s+/i, '');
+    const p = tok.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    return String(JSON.parse(atob(p + '='.repeat((4 - (p.length % 4)) % 4))).email ?? '').trim().toLowerCase();
+  } catch { return ''; }
+}
+
+/**
+ * Each account reads receipts with its own Gemini key, so quotas stay separate:
+ * - GEMINI_KEYS: JSON {"email": "key", ...}, one entry per person.
+ * - GEMINI_API_KEY: the original single key, used only by GEMINI_OWNER_EMAIL.
+ * No key for this account → null (the app then reads the receipt on the phone instead).
+ */
+function keyFor(email: string): string | null {
+  if (!email) return null;
+  try {
+    const map = JSON.parse(Deno.env.get('GEMINI_KEYS') || '{}') as Record<string, string>;
+    for (const [e, k] of Object.entries(map)) if (e.trim().toLowerCase() === email && k) return k.trim();
+  } catch { /* malformed GEMINI_KEYS: ignore it */ }
+  const owner = (Deno.env.get('GEMINI_OWNER_EMAIL') || '').trim().toLowerCase();
+  const legacy = Deno.env.get('GEMINI_API_KEY');
+  return legacy && owner && owner === email ? legacy : null;
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors });
   if (req.method !== 'POST') return json({ error: 'method' }, 405);
-  const key = Deno.env.get('GEMINI_API_KEY');
-  if (!key) return json({ error: 'GEMINI_API_KEY belum diisi di Supabase (Edge Functions → Secrets).' }, 500);
+  const key = keyFor(emailOf(req));
+  if (!key) return json({ error: 'Akun ini belum punya kunci Gemini sendiri (lihat supabase/SETUP-PASANGAN.md).', code: 'no_key' }, 403);
   let input: { image?: string; mime?: string; model?: string };
   try { input = await req.json(); } catch { return json({ error: 'Permintaan tidak valid.' }, 400); }
   const image = input.image ?? '', mime = input.mime ?? 'image/jpeg';

@@ -24,6 +24,10 @@ Edge Functions → **Secrets** → **Add new secret**:
 
 - Name: `GEMINI_API_KEY`
 - Value: API key dari langkah 1
+- Name: `GEMINI_OWNER_EMAIL`
+- Value: email akun Do it Dip Anda (hanya akun ini yang boleh memakai `GEMINI_API_KEY`)
+
+Pengguna lain memakai kunci Gemini miliknya sendiri lewat secret `GEMINI_KEYS`, lihat `SETUP-PASANGAN.md`.
 
 ## 4. Di aplikasi
 

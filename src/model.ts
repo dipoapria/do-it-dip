@@ -234,4 +234,33 @@ export const DEFAULT_WALLETS: Omit<Wallet, 'init' | 'book'>[] = [
   { id: 'tunai', name: 'Tunai', short: 'Rp', group: 'Tunai', color: '#2E9E58', order: 5, aliases: ['tunai', 'cash', 'kes'] },
 ];
 
+/**
+ * Banks and e-wallets offered when someone starts using the app; they tick the ones they use.
+ * Ids of the original defaults are kept (statement import and older data use them).
+ */
+export const WALLET_CATALOG: Omit<Wallet, 'init' | 'book' | 'order'>[] = [
+  { id: 'bca', name: 'BCA', short: 'BCA', group: 'Bank', color: '#1D4ED8', aliases: ['bca', 'bank bca', 'klikbca', 'mybca'] },
+  { id: 'bri', name: 'BRI', short: 'BRI', group: 'Bank', color: '#1E3A8A', aliases: ['bri', 'bank bri', 'brimo'] },
+  { id: 'mandiri', name: 'Bank Mandiri', short: 'MDR', group: 'Bank', color: '#0B3B8C', aliases: ['mandiri', 'bank mandiri', 'livin'] },
+  { id: 'bni', name: 'BNI', short: 'BNI', group: 'Bank', color: '#F25A24', aliases: ['bni', 'bank bni', 'wondr'] },
+  { id: 'bsi', name: 'BSI', short: 'BSI', group: 'Bank', color: '#0F8B8D', aliases: ['bsi', 'bank syariah indonesia'] },
+  { id: 'btn', name: 'BTN', short: 'BTN', group: 'Bank', color: '#1D1641', aliases: ['btn', 'bank btn'] },
+  { id: 'cimb', name: 'CIMB Niaga', short: 'CIMB', group: 'Bank', color: '#B91C1C', aliases: ['cimb', 'cimb niaga', 'octo'] },
+  { id: 'permata', name: 'Bank Permata', short: 'PMT', group: 'Bank', color: '#6D3FD8', aliases: ['bank permata', 'permata'] },
+  { id: 'danamon', name: 'Danamon', short: 'DNM', group: 'Bank', color: '#C2410C', aliases: ['danamon', 'bank danamon'] },
+  { id: 'ocbc', name: 'OCBC', short: 'OCBC', group: 'Bank', color: '#DC2626', aliases: ['ocbc', 'ocbc nisp'] },
+  { id: 'jago', name: 'Bank Jago', short: 'JGO', group: 'Bank', color: '#E0A100', aliases: ['jago', 'bank jago'] },
+  { id: 'seabank', name: 'SeaBank', short: 'SEA', group: 'Bank', color: '#F25A24', aliases: ['seabank', 'sea bank'] },
+  { id: 'blu', name: 'blu by BCA', short: 'blu', group: 'Bank', color: '#00A5CF', aliases: ['blu', 'blu bca'] },
+  { id: 'jenius', name: 'Jenius', short: 'JNS', group: 'Bank', color: '#0EA5E9', aliases: ['jenius'] },
+  { id: 'allo', name: 'Allo Bank', short: 'ALO', group: 'Bank', color: '#E04BB5', aliases: ['allo', 'allo bank'] },
+  { id: 'bsb', name: 'Bank Sumsel Babel', short: 'BSB', group: 'Bank', color: '#0F8B8D', aliases: ['bank sumsel babel', 'sumsel babel', 'bank sumsel', 'sumsel', 'bsb'] },
+  { id: 'gopay', name: 'GoPay', short: 'GP', group: 'E-wallet', color: '#00A5CF', aliases: ['gopay', 'go pay'] },
+  { id: 'ovo', name: 'OVO', short: 'OVO', group: 'E-wallet', color: '#6D3FD8', aliases: ['ovo'] },
+  { id: 'dana', name: 'DANA', short: 'DN', group: 'E-wallet', color: '#2F7CF6', aliases: ['dana'] },
+  { id: 'spay', name: 'ShopeePay', short: 'SP', group: 'E-wallet', color: '#F25A24', aliases: ['shopeepay', 'shopee pay', 'spay'] },
+  { id: 'linkaja', name: 'LinkAja', short: 'LA', group: 'E-wallet', color: '#DC2626', aliases: ['linkaja', 'link aja'] },
+  { id: 'tunai', name: 'Tunai', short: 'Rp', group: 'Tunai', color: '#2E9E58', aliases: ['tunai', 'cash', 'kes'] },
+];
+
 export const WALLET_ICON: Record<WalletGroup, string> = { Bank: 'landmark', 'E-wallet': 'smartphone', Tunai: 'banknote' };

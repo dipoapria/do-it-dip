@@ -32,6 +32,9 @@ export function cloudError(e: unknown): string {
   if (/password.*(at least|short|weak)/i.test(m)) return 'Kata sandi terlalu pendek atau lemah. Gunakan minimal 8 karakter.';
   if (/rate limit|too many|security purposes|seconds/i.test(m)) return 'Terlalu banyak percobaan. Tunggu sebentar lalu coba lagi.';
   if (/relation .*backups|does not exist|42P01|PGRST205/i.test(m)) return 'Tabel cadangan belum dibuat di Supabase (jalankan supabase/setup.sql).';
+  if (/belum punya kunci gemini/i.test(m)) return 'Akun ini belum punya kunci Gemini sendiri';
+  if (/same.*(old|previous)|different from the old/i.test(m)) return 'Kata sandi baru harus berbeda dari yang lama.';
+  if (/reauthenticat/i.test(m)) return 'Demi keamanan, keluar lalu masuk lagi sebelum mengganti kata sandi.';
   if (/jwt|not authenticated|401/i.test(m)) return 'Sesi login berakhir. Masuk lagi.';
   return m || 'Gagal terhubung ke cadangan online.';
 }
@@ -65,6 +68,12 @@ export async function signUp(email: string, password: string): Promise<string | 
   if (error) throw error;
   if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) throw new Error('User already registered');
   return data.session ? data.user?.email ?? email : null;
+}
+/** Change the signed-in account's password. */
+export async function changePassword(password: string): Promise<void> {
+  const c = await sb();
+  const { error } = await c.auth.updateUser({ password });
+  if (error) throw error;
 }
 export async function signOut(): Promise<void> { const c = await sb(); await c.auth.signOut(); }
 
