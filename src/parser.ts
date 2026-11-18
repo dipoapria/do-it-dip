@@ -124,6 +124,11 @@ const SKIP_KEY = new Set(['bulan', 'bln', 'hari', 'minggu', 'tahun', 'thn', 'kal
  * What to remember when the user corrects a category: the first two meaningful words of the note ("Sewa kos 3 bulan"
  * → "sewa kos"), so "sewa mobil" is not swept along; a one-word note is remembered as that word.
  */
+/** True when the note contains one of the remembered fixed-expense phrases (whole words). */
+export function fixedMatch(note: string, keys: string[] | undefined): boolean {
+  const t = ' ' + note.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim() + ' ';
+  return (keys || []).some((k) => k && t.includes(' ' + k + ' '));
+}
 export function learnKey(note: string): string {
   const ws = (note.toLowerCase().match(/[a-z]+/g) || []).filter((w) => w.length >= 3 && !SKIP_KEY.has(w));
   return ws.slice(0, 2).join(' ');

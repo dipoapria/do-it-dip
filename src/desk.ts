@@ -8,11 +8,13 @@ import * as store from './store.ts';
 import { netWorth } from './plan.ts';
 import { portfolio } from './invest.ts';
 import { BOOKS } from './model.ts';
+import { gridHTML, monthSums, pickerHTML, sumsHTML } from './calview.ts';
+import { longDate } from './format.ts';
 
 type Api = { icons: () => void; onPhoneShown: () => void; exportExcel: (p: { from: string; to: string; label: string; file: string }) => void };
 let api: Api;
 let root: HTMLElement | null = null;
-const D = { mode: 'month', mk: null, year: null, cat: null, slide: 0, presenting: false };
+const D = { mode: 'month', mk: null, year: null, cat: null, slide: 0, presenting: false, day: null, calPick: false, calY: 0 };
 const $ = (id) => document.getElementById(id);
 const T = () => todayStr();
 const TX = () => store.bookTxs();
@@ -67,7 +69,7 @@ function cashflow(P, cur, big) {
       labels += `<text x="${x.toFixed(1)}" y="${H - 10}" text-anchor="middle">${BLN[i]}</text>`;
     });
   } else {
-    const n = daysIn(P.key), lastDay = P.cur ? Number(T().slice(8)) : n; vals = Array.from({ length: n }, (_, i) => cur.byDay[`${P.key}-${pad(i + 1)}`] || 0);
+    const n = daysIn(P.key), lastDay = P.cur ? Number(T().slice(8)) : n; vals = Array.from({ length: n }, (_, i) => cur.byDayFlex[`${P.key}-${pad(i + 1)}`] || 0); // fixed expenses left out
     max = niceMax(Math.max(...vals, 0)); const gw = plotW / n; bw = gw * 0.62; const mx = Math.max(...vals);
     vals.forEach((v, i) => {
       const x = L + i * gw + (gw - bw) / 2, h = Math.max(v ? 3 : 0, (v / max) * (base - top));
@@ -109,16 +111,16 @@ function topCategories(P, cur, prev, big) {
     return `<button class="dk-top" data-a="dkCat" data-cat="${k}" style="--c:${c.c};--i:${i}"><span class="dk-ic sm"><i data-lucide="${c.i}"></i></span><div class="dk-top-m"><div><b>${c.n}</b><em class="m">${rp(v)}</em></div><div class="trk"><i style="width:${(v / mx) * 100}%"></i></div></div><span class="dk-mini-d ${d == null ? 'flat' : d > 0 ? 'bad' : 'good'}">${d == null ? 'baru' : (d > 0 ? '▲ ' : '▼ ') + pct(Math.abs(d))}</span></button>`; }).join('')}</div>`;
 }
 function biggest(P, big) {
-  const list = TX().filter((t) => t.type === 'out' && t.date.startsWith(P.key)).sort((a, b) => b.amount - a.amount).slice(0, big ? 6 : 6);
-  return `<div class="dk-card-h"><h3>Pengeluaran terbesar</h3><small>${esc(P.label)}</small></div>
+  const list = TX().filter((t) => t.type === 'out' && !t.fixed && t.date.startsWith(P.key)).sort((a, b) => b.amount - a.amount).slice(0, big ? 6 : 6);
+  return `<div class="dk-card-h"><h3>Pengeluaran terbesar</h3><small>${esc(P.label)} · tanpa yang tetap</small></div>
   ${list.length ? `<div class="dk-big-list">${list.map((t, i) => { const c = CATS[t.cat] || CATS.lain; return `<div class="dk-big" style="--c:${c.c};--i:${i}"><span class="rank">${i + 1}</span><div><b>${esc(t.note)}</b><small>${c.n} · ${dayLabel(t.date, T())}</small></div><em class="m">${rp(t.amount)}</em></div>`; }).join('')}</div>` : '<div class="dk-empty">Belum ada pengeluaran.</div>'}`;
 }
 function notes(P, cur, prev) {
   const out = [];
   if (cur.inc) { const r = (cur.inc - cur.out) / cur.inc; out.push({ c: r >= 0.2 ? '#10B981' : r >= 0.1 ? '#F0A010' : '#F43F5E', i: 'piggy-bank', t: `Rasio tabungan ${pct(r)}`, d: r >= 0.2 ? 'Di atas patokan aman 20% dari pemasukan.' : 'Masih di bawah patokan 20%. Kategori teratas adalah tempat paling mudah untuk berhemat.' }); }
-  const top = Object.entries(cur.byCat).sort((a, b) => b[1] - a[1])[0];
-  if (top) out.push({ c: CATS[top[0]].c, i: CATS[top[0]].i, t: `${CATS[top[0]].n} menyerap ${pct(top[1] / cur.out)}`, d: `${rp(top[1])} selama ${P.label}.` });
-  let up = null; for (const [k, v] of Object.entries(cur.byCat)) { const pv = prev.byCat[k] || 0; if (pv && v - pv > 0 && (!up || v - pv > up.diff)) up = { k, diff: v - pv, d: (v - pv) / pv }; }
+  const top = Object.entries(cur.byCatFlex).sort((a, b) => b[1] - a[1])[0];
+  if (top) out.push({ c: CATS[top[0]].c, i: CATS[top[0]].i, t: `${CATS[top[0]].n} menyerap ${pct(top[1] / (cur.out - cur.fixed))}`, d: `${rp(top[1])} selama ${P.label}${cur.fixed ? ', di luar pengeluaran tetap' : ''}.` });
+  let up = null; for (const [k, v] of Object.entries(cur.byCatFlex)) { const pv = prev.byCatFlex[k] || 0; if (pv && v - pv > 0 && (!up || v - pv > up.diff)) up = { k, diff: v - pv, d: (v - pv) / pv }; }
   if (up) out.push({ c: '#F43F5E', i: 'flame', t: `Kenaikan terbesar: ${CATS[up.k].n}`, d: `Naik ${rp(up.diff)} (${pct(up.d)}) dibanding ${P.cur ? 'periode sama ' : ''}${P.prevLabel}.` });
   if (D.mode === 'month' && P.cur) {
     const prevFull = st(P.prevKey).out, prevSame = prev.out;
@@ -128,6 +130,35 @@ function notes(P, cur, prev) {
   if (months.length) { const avg = months.reduce((a, b) => a + b, 0) / months.length, total = WL().reduce((s, w) => s + balance(ALL(), w), 0), n = Math.max(0, total / avg); out.push({ c: '#8B5CF6', i: 'shield-check', t: `Dana darurat cukup ${n.toFixed(1).replace('.', ',')} bulan`, d: `Patokan umum 3–6 kali pengeluaran bulanan (rata-rata ${rp(avg)}).`, prog: Math.min(1, n / 6) }); }
   return `<div class="dk-card-h"><h3>Catatan perencana keuangan</h3></div>
   ${out.length ? `<div class="dk-notes">${out.map((x, i) => `<div class="dk-note" style="--c:${x.c};--i:${i}"><span class="dk-ic sm"><i data-lucide="${x.i}"></i></span><div><b>${x.t}</b><p>${x.d}</p>${x.prog != null ? `<div class="trk"><i style="width:${x.prog * 100}%"></i></div>` : ''}</div></div>`).join('')}</div>` : '<div class="dk-empty">Catatan muncul setelah ada pemasukan dan pengeluaran.</div>'}`;
+}
+/* ---------- calendar + the chosen day ---------- */
+function deskDay(mk) {
+  if (D.day && D.day.startsWith(mk)) return D.day;
+  if (mk === T().slice(0, 7)) return T();
+  const ds = TX().filter((t) => t.date.startsWith(mk)).map((t) => t.date).sort();
+  return ds.length ? ds[ds.length - 1] : mk + '-01';
+}
+function calendarCard(mk) {
+  const months = monthList(TX(), T()), first = months[0], last = T().slice(0, 7);
+  const rules = store.data.rules.filter((r) => (r.book || 'pribadi') === store.curBook());
+  return `<div class="dk-card-h"><h3>Kalender ${esc(monthName(mk))}</h3>
+      <div class="dk-cal-ctl"><button class="dk-btn" data-a="dkCalPick"><i data-lucide="calendar"></i>${D.calPick ? 'Tutup pilihan bulan' : 'Pilih bulan'}</button><button class="dk-btn" data-a="dkCalToday">Hari ini</button></div></div>
+    ${sumsHTML(monthSums(TX(), mk))}
+    ${D.calPick ? pickerHTML({ mk, year: D.calY, first, last, actYear: 'dkCalYear', actMonth: 'dkCalMonth' }) : gridHTML({ mk, sel: deskDay(mk), today: T(), txs: TX(), rules, act: 'dkCalDay' })}`;
+}
+function dayPanel(mk) {
+  const d = deskDay(mk), list = TX().filter((t) => t.date === d).sort((a, b) => b.createdAt - a.createdAt);
+  const inc = list.filter((t) => t.type === 'in').reduce((s, t) => s + t.amount, 0), out = list.filter((t) => t.type === 'out').reduce((s, t) => s + t.amount, 0);
+  const fx = list.filter((t) => t.type === 'out' && t.fixed).reduce((s, t) => s + t.amount, 0);
+  const row = (t) => {
+    const c = t.type === 'tf' ? { n: 'Transfer', c: '#94A3B8', i: 'arrow-left-right' } : CATS[t.cat] || CATS.lain;
+    const sign = t.type === 'in' ? '+' : t.type === 'out' ? '−' : '';
+    return `<div class="dk-dd-row"><span class="ic" style="--c:${c.c}"><i data-lucide="${c.i}"></i></span><div><b>${t.fixed ? '<i data-lucide="lock" class="fx-ic"></i>' : ''}${esc(t.note)}</b><small>${esc(t.type === 'tf' ? 'Transfer' : `${c.n} · ${t.sub}`)}</small></div><em class="m ${t.type}">${sign}${rp(t.amount)}</em></div>`;
+  };
+  return `<div class="dk-card-h"><h3>${esc(dayLabel(d, T()))}</h3><span class="dk-sub">${esc(longDate(d))}</span></div>
+    <div class="dk-dd-sum"><div><small>Masuk</small><b class="m in">${rp(inc)}</b></div><div><small>Keluar</small><b class="m out">${rp(out)}</b></div><div><small>Transaksi</small><b>${list.length}</b></div></div>
+    ${fx ? `<p class="dd-fx"><i data-lucide="lock"></i>Tetap ${rp(fx)} · harian ${rp(out - fx)}</p>` : ''}
+    ${list.length ? `<div class="dk-dd-list">${list.map(row).join('')}</div>` : '<div class="dk-empty">Tidak ada transaksi pada hari ini.</div>'}`;
 }
 function walletsStrip() {
   const ws = WL().map((w) => ({ w, b: balance(ALL(), w) })), tot = ws.reduce((s, x) => s + Math.max(0, x.b), 0) || 1;
@@ -179,6 +210,7 @@ export function render(swap = '') {
         <section class="dk-card span-4">${topCategories(P, cur, prev)}</section>
         <section class="dk-card span-4">${biggest(P)}</section>
         <section class="dk-card span-4">${notes(P, cur, prev)}</section>
+        ${D.mode === 'month' ? `<section class="dk-card span-8" id="dkCal">${calendarCard(D.mk)}</section><section class="dk-card span-4 dk-dd" id="dkDay">${dayPanel(D.mk)}</section>` : ''}
         <section class="dk-card span-12">${walletsStrip()}</section>
       </div>
     </div>
@@ -240,6 +272,10 @@ export function sync() {
 function openPhone() { document.body.classList.add('phone-open'); api.onPhoneShown(); }
 export function closePhone() { if (!document.body.classList.contains('phone-open')) return; document.body.classList.remove('phone-open'); render(); }
 
+function redrawCal() {
+  const c = $('dkCal'), p = $('dkDay'); if (!c || !p) return;
+  c.innerHTML = calendarCard(D.mk); p.innerHTML = dayPanel(D.mk); api.icons();
+}
 export function initDesk(a: Api) {
   api = a;
   root = document.createElement('div'); root.id = 'desk'; document.body.appendChild(root);
@@ -259,6 +295,11 @@ export function initDesk(a: Api) {
       case 'dkExit': stopPresent(); break;
       case 'dkSlide': goSlide(D.slide + Number(d.d)); break;
       case 'dkGo': goSlide(Number(d.i)); break;
+      case 'dkCalDay': D.day = d.d; redrawCal(); break;
+      case 'dkCalToday': { const mk = T().slice(0, 7); D.day = T(); D.calPick = false; if (D.mk !== mk) { D.mk = mk; render(); } else redrawCal(); break; }
+      case 'dkCalPick': D.calPick = !D.calPick; D.calY = Number(D.mk.slice(0, 4)); redrawCal(); break;
+      case 'dkCalYear': D.calY += Number(d.s); redrawCal(); break;
+      case 'dkCalMonth': D.mk = d.v; D.day = null; D.calPick = false; D.cat = null; render(); break;
     }
   });
   document.addEventListener('keydown', (e) => {

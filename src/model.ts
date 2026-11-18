@@ -16,6 +16,8 @@ export interface Tx {
   book: string;            // 'pribadi' now; 'freelance' / 'usaha' / 'keluarga' later
   /** Id of the recurring rule that created it, if any. */
   rec?: string;
+  /** A fixed expense (rent, instalment): paid no matter what, so left out of "most spent" views. */
+  fixed?: boolean;
   /** Debt (utang/piutang) this transaction belongs to; debtInit marks the opening loan itself. */
   debt?: string;
   debtInit?: boolean;
@@ -68,13 +70,17 @@ export interface Settings {
   curBook: string;
   /** How receipt photos are read on this device: Gemini via the cloud, or on-device OCR. */
   receiptMode: 'ai' | 'ocr';
+  /** Show the daily bar chart in Rekap (the calendar is shown either way). */
+  showBars: boolean;
+  /** Note phrases remembered as fixed expenses ("sewa kos"): new expenses matching one are marked fixed. */
+  fixedKeys: string[];
   /** Investment types shown in the portfolio (others are hidden, not deleted). */
   investTypes: string[];
   /** The user's changes to categories and subcategories (see applyCatEdits). */
   catEdits: Record<string, CatEdit>;
 }
 
-export const DEFAULT_SETTINGS: Settings = { name: '', onboarded: false, theme: 'system', lpLearned: false, pinHash: '', pinSalt: '', pinLen: 4, bioId: '', lockAfter: 60, cloudEmail: '', cloudLastSync: '', cloudDirty: false, budgets: {}, bookBudgets: {}, books: ['pribadi'], curBook: 'pribadi', receiptMode: 'ai', investTypes: ['saham', 'reksadana', 'obligasi', 'emas', 'deposito', 'kripto'], catEdits: {} };
+export const DEFAULT_SETTINGS: Settings = { name: '', onboarded: false, theme: 'system', lpLearned: false, pinHash: '', pinSalt: '', pinLen: 4, bioId: '', lockAfter: 60, cloudEmail: '', cloudLastSync: '', cloudDirty: false, budgets: {}, bookBudgets: {}, books: ['pribadi'], curBook: 'pribadi', receiptMode: 'ai', investTypes: ['saham', 'reksadana', 'obligasi', 'emas', 'deposito', 'kripto'], catEdits: {}, showBars: false, fixedKeys: [] };
 
 export interface Category { n: string; c: string; i: string; subs: string[]; inc?: boolean; /** only offered in this book */ book?: string; /** not offered in pickers (old transactions keep showing it) */ hidden?: boolean; /** made by the user */ custom?: boolean }
 /** A user's change to a built-in category, or a whole category of their own (custom: true). */

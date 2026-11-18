@@ -9,7 +9,7 @@ import {
   CloudUpload, Download, Upload, MonitorSmartphone, Sun, Moon, User, Laptop, Store, Users, Layers, Pointer, Pencil, Palette,
   Presentation, Minimize, Flame, Clapperboard, Camera, ImagePlus, FileSpreadsheet, ScanLine, Receipt, KeyRound, TriangleAlert, RotateCcw,
   ScanFace, PartyPopper, Play, Hourglass, CloudDownload, RefreshCw, LogOut, Mail, LogIn, Repeat, FileDown, SkipForward, CalendarClock,
-  HandCoins, Handshake, Target, Plane, Car, Bike, Heart, Baby, Gem, BriefcaseBusiness, Package, Wrench, ChartCandlestick, Archive,
+  HandCoins, Handshake, Target, Plane, Car, Bike, Heart, Baby, Gem, BriefcaseBusiness, Package, Wrench, ChartCandlestick, Archive, ChartColumn,
 } from 'lucide';
 import { allocated, debtDone, debtLeft, debtPaid, etaMonths, goalLeft, goalPct, goalSaved, monthlyNeed, netWorth, openingTx, paymentTx, isDebtWallet, monthlyInstalments, dsr } from './plan.ts';
 import { budgetSummary, levelOf, newAlerts, suggestBudgets } from './budget.ts';
@@ -25,6 +25,7 @@ import { extract, NeedPassword } from './filetext.ts';
 import { guessRow, linesToStatement, rowsToStatement } from './statement.ts';
 import { KW } from './model.ts';
 import { initDesk, render as renderDesk, sync as syncDesk } from './desk.ts';
+import { gridHTML, monthSums, pickerHTML, sumsHTML } from './calview.ts';
 import { addDays, addMonths, BLN, BULAN, dayLabel, daysIn, digitsOnly, esc, fmtN, HARI, HARI_P, longDate, monthName, pad, pct, rp, shortTxt, toD, todayStr } from './format.ts';
 import { BASE_CATS, BOOK_KW, BOOKS, CATS, catsFor, DEFAULT_WALLETS, IN_CATS, OUT_CATS, WALLET_COLORS, WALLET_ICON } from './model.ts';
 import { highlightHTML, learnKey, parseText } from './parser.ts';
@@ -39,13 +40,13 @@ const ICONS = {
   MonitorSmartphone, Sun, Moon, User, Laptop, Store, Users, Layers, Pointer, Pencil, Palette, Presentation, Minimize, Flame, Clapperboard,
   Camera, ImagePlus, FileSpreadsheet, ScanLine, Receipt, KeyRound, TriangleAlert, RotateCcw,
   ScanFace, PartyPopper, Play, Hourglass, CloudDownload, RefreshCw, LogOut, Mail, LogIn, Repeat, FileDown, SkipForward, CalendarClock,
-  HandCoins, Handshake, Target, Plane, Car, Bike, Heart, Baby, Gem, BriefcaseBusiness, Package, Wrench, ChartCandlestick, Archive,
+  HandCoins, Handshake, Target, Plane, Car, Bike, Heart, Baby, Gem, BriefcaseBusiness, Package, Wrench, ChartCandlestick, Archive, ChartColumn,
 };
 function icons() { createIcons({ icons: ICONS, attrs: { 'stroke-width': 2.2 } }); }
 
 /* ================= state & data helpers ================= */
 const S = {
-  idx: 0, pos: 0, mk: null, drill: null, selDay: null, wsel: null, dispTotal: 0,
+  idx: 0, pos: 0, mk: null, drill: null, selDay: null, calPick: false, calY: 0, wsel: null, dispTotal: 0,
   mode: 'kalimat', co: null, nl: '', nlOv: {}, nlPick: null, nlCat: null, lastSig: [], prevMarks: null, editId: null,
   m: null, timers: [], justDragged: false, wall: false, peekDrag: null, confirmFn: null, persisted: false,
   ob: null,
@@ -131,7 +132,7 @@ function countUp(el) {
 function txRow(t) {
   const c = catOf(t), w = W(t.wallet), sign = t.type === 'in' ? '+' : t.type === 'out' ? '−' : '';
   const meta = t.type === 'tf' ? `${esc(w.name)} → ${esc(W(t.to).name)}` : `${esc(t.sub)} · ${esc(w.name)}`;
-  return `<button class="tx${t.fresh ? ' fresh' : ''}" data-a="tx" data-id="${t.id}"><span class="ic" style="--c:${c.c}"><i data-lucide="${c.i}"></i></span><span class="tx-main"><b>${esc(t.note)}</b><small>${t.rec ? '<i data-lucide="repeat" class="rec-ic"></i>' : ''}${meta}</small></span><span class="amt ${t.type}">${sign}${money(t.amount)}</span></button>`;
+  return `<button class="tx${t.fresh ? ' fresh' : ''}" data-a="tx" data-id="${t.id}"><span class="ic" style="--c:${c.c}"><i data-lucide="${c.i}"></i></span><span class="tx-main"><b>${t.fixed ? '<i data-lucide="lock" class="fx-ic" aria-label="Pengeluaran tetap"></i>' : ''}${esc(t.note)}</b><small>${t.rec ? '<i data-lucide="repeat" class="rec-ic"></i>' : ''}${meta}</small></span><span class="amt ${t.type}">${sign}${money(t.amount)}</span></button>`;
 }
 function grouped(list) {
   const g = {}; list.forEach((t) => { (g[t.date] = g[t.date] || []).push(t); });
@@ -189,8 +190,8 @@ function donut(parts, total) {
 }
 function dailyChart(mk, st) {
   const n = daysIn(mk), Wd = 320, H = 118, top = 8, base = 96, lastDay = isCurMonth(mk) ? Number(T().slice(8)) : n;
-  const vals = []; for (let d = 1; d <= n; d++) vals.push(st.byDay[`${mk}-${pad(d)}`] || 0);
-  const max = Math.max(...vals, 1), avg = st.out / lastDay, bw = Wd / n, mxI = vals.indexOf(Math.max(...vals)), y = (v) => base - (v / max) * (base - top);
+  const vals = []; for (let d = 1; d <= n; d++) vals.push(st.byDayFlex[`${mk}-${pad(d)}`] || 0); // fixed expenses left out
+  const max = Math.max(...vals, 1), avg = (st.out - st.fixed) / lastDay, bw = Wd / n, mxI = vals.indexOf(Math.max(...vals)), y = (v) => base - (v / max) * (base - top);
   let bars = '';
   vals.forEach((v, i) => {
     const d = i + 1, h = Math.max(v ? 3 : 0, base - y(v)), key = `${mk}-${pad(d)}`;
@@ -219,8 +220,8 @@ function insights(mk, st, months) {
     const rate = (st.inc - st.out) / st.inc;
     out.push({ c: rate >= 0.2 ? '#10B981' : rate >= 0.1 ? '#F0A010' : '#F43F5E', i: 'piggy-bank', t: `Rasio tabungan ${pct(rate)}`, d: rate >= 0.2 ? 'Di atas patokan aman 20% dari pemasukan. Pertahankan ritme ini.' : 'Masih di bawah patokan 20%. Lihat kategori terbesar untuk mencari ruang hemat.' });
   }
-  const top = Object.entries(st.byCat).sort((a, b) => b[1] - a[1])[0];
-  if (top) out.push({ c: CATS[top[0]].c, i: CATS[top[0]].i, t: `${CATS[top[0]].n} menyerap ${pct(top[1] / st.out)}`, d: `${rp(top[1])} di bulan ini. Kategori inilah yang paling menentukan sisa uang Anda.` });
+  const top = Object.entries(st.byCatFlex).sort((a, b) => b[1] - a[1])[0];
+  if (top) out.push({ c: CATS[top[0]].c, i: CATS[top[0]].i, t: `${CATS[top[0]].n} menyerap ${pct(top[1] / (st.out - st.fixed))}`, d: `${rp(top[1])} di bulan ini${st.fixed ? ', di luar pengeluaran tetap' : ''}. Kategori inilah yang paling menentukan sisa uang Anda.` });
   if (cur && idx > 0) {
     const day = Number(T().slice(8)), prevFull = stats(TX(), months[idx - 1]).out, prevSame = stats(TX(), months[idx - 1], day).out;
     if (prevFull > 0) {
@@ -248,12 +249,73 @@ function insights(mk, st, months) {
   if (!out.length) return '<div class="empty">Catatan muncul setelah ada pemasukan dan pengeluaran tercatat.</div>';
   return out.map((x) => `<div class="insight"><span class="ic" style="--c:${x.c}"><i data-lucide="${x.i}"></i></span><div style="flex:1;min-width:0"><b>${x.t}</b><p>${x.d}</p>${x.prog != null ? `<div class="prog" style="--c:${x.c}"><i style="width:${x.prog * 100}%"></i></div>` : ''}</div></div>`).join('');
 }
+/** The day shown in the day-by-day view: the one picked, else today (this month) or the latest day with records. */
+function pickDay(mk) {
+  if (S.selDay && S.selDay.startsWith(mk)) return S.selDay;
+  if (isCurMonth(mk)) return T();
+  const ds = TX().filter((t) => t.date.startsWith(mk)).map((t) => t.date).sort();
+  return ds.length ? ds[ds.length - 1] : mk + '-01';
+}
+function dayDetailHTML(mk) {
+  const d = pickDay(mk), list = TX().filter((t) => t.date === d).sort((a, b) => b.createdAt - a.createdAt);
+  const inc = list.filter((t) => t.type === 'in').reduce((s, t) => s + t.amount, 0), out = list.filter((t) => t.type === 'out').reduce((s, t) => s + t.amount, 0);
+  const last = isCurMonth(mk) ? T() : mk + '-' + pad(daysIn(mk)), first = mk + '-01';
+  const byCat = {}; list.filter((t) => t.type === 'out' && t.cat).forEach((t) => { byCat[t.cat] = (byCat[t.cat] || 0) + t.amount; });
+  const cats = Object.entries(byCat).sort((a, b) => b[1] - a[1]);
+  const fx = list.filter((t) => t.type === 'out' && t.fixed).reduce((s, t) => s + t.amount, 0);
+  
+  return `<div class="dd-nav"><button data-a="daystep" data-s="-1" ${d <= first ? 'disabled' : ''} aria-label="Hari sebelumnya"><i data-lucide="chevron-left"></i></button><div><b>${dayLabel(d, T())}</b><small>${longDate(d)}</small></div><button data-a="daystep" data-s="1" ${d >= last ? 'disabled' : ''} aria-label="Hari berikutnya"><i data-lucide="chevron-right"></i></button></div>
+    <div class="tiles dd-tiles"><div class="tile in"><small>Masuk</small><b>${inc ? shortTxt(inc) : '–'}</b></div><div class="tile out"><small>Keluar</small><b>${out ? shortTxt(out) : '–'}</b></div><div class="tile"><small>Transaksi</small><b>${list.length}</b></div></div>
+    ${fx ? `<p class="dd-fx"><i data-lucide="lock"></i>Tetap ${rp(fx)} · harian ${rp(out - fx)}</p>` : ''}
+    ${cats.length ? `<div class="dd-cats">${cats.map(([k, v]) => `<div style="--c:${CATS[k]?.c || '#94A3B8'}"><span>${esc(CATS[k]?.n || k)}</span><i style="width:${Math.max(4, (v / out) * 100).toFixed(0)}%"></i><em>${shortTxt(v)}</em></div>`).join('')}</div>` : ''}
+    ${list.length ? `<div class="list">${list.map(txRow).join('')}</div>` : '<div class="empty">Tidak ada transaksi pada hari ini.</div>'}`;
+}
+function selectDay(day) {
+  S.selDay = day; PANELS[1].querySelectorAll('.bar, #calCard .cal-d').forEach((b) => b.classList.toggle('sel', b.dataset.d === day));
+  const st = stats(TX(), S.mk), n = $('daynote');
+  if (n) n.innerHTML = `<b>${dayLabel(day, T())}</b> · ${money(st.byDayFlex[day] || 0)} dari ${TX().filter((t) => t.date === day && t.type === 'out' && !t.fixed).length} transaksi${st.byDay[day] > (st.byDayFlex[day] || 0) ? ' · di luar yang tetap' : ''}`;
+  const b = $('ddBody'); if (b) { b.innerHTML = dayDetailHTML(S.mk); icons(); }
+}
+/* ---- calendar (Rekap card and the jump-to-date sheet) ---- */
+const CAL = { mk: null, pick: false, year: 0 };
+const calRange = () => ({ first: monthList(TX(), T())[0], last: T().slice(0, 7) });
+const calRules = () => store.data.rules.filter((r) => (r.book || 'pribadi') === BK());
+function calCardHTML(mk) {
+  const months = monthList(TX(), T()), idx = months.indexOf(mk), { first, last } = calRange();
+  const body = S.calPick
+    ? pickerHTML({ mk, year: S.calY, first, last, actYear: 'calYearIn', actMonth: 'calMonthIn' })
+    : gridHTML({ mk, sel: pickDay(mk), today: T(), txs: TX(), rules: calRules(), act: 'calDay' });
+  return `<div class="cal-h"><button data-a="month" data-d="-1" ${idx <= 0 ? 'disabled' : ''} aria-label="Bulan sebelumnya"><i data-lucide="chevron-left"></i></button>
+    <button class="cal-title" data-a="calPickIn" aria-label="Pilih bulan dan tahun">${monthName(mk)}<i data-lucide="chevron-down"></i></button>
+    <button data-a="month" data-d="1" ${idx >= months.length - 1 ? 'disabled' : ''} aria-label="Bulan berikutnya"><i data-lucide="chevron-right"></i></button>
+    <button class="cal-today" data-a="calToday">Hari ini</button></div>
+    ${sumsHTML(monthSums(TX(), mk))}${body}
+    <button class="cal-bars" data-a="barsToggle"><i data-lucide="${store.data.settings.showBars ? 'eye-off' : 'chart-column'}"></i>${store.data.settings.showBars ? 'Sembunyikan grafik batang' : 'Tampilkan grafik batang'}</button>`;
+}
+function redrawCal() { const c = $('calCard'); if (c) { c.innerHTML = calCardHTML(S.mk); icons(); } }
+function calSheetHTML() {
+  const { first, last } = calRange(), mk = CAL.mk;
+  return `<div class="cal-h"><button data-a="calStepSh" data-s="-1" ${mk <= first ? 'disabled' : ''} aria-label="Bulan sebelumnya"><i data-lucide="chevron-left"></i></button>
+    <button class="cal-title" data-a="calPickSh" aria-label="Pilih bulan dan tahun">${monthName(mk)}<i data-lucide="chevron-down"></i></button>
+    <button data-a="calStepSh" data-s="1" ${mk >= last ? 'disabled' : ''} aria-label="Bulan berikutnya"><i data-lucide="chevron-right"></i></button>
+    <button class="cal-today" data-a="calTodaySh">Hari ini</button></div>
+    ${sumsHTML(monthSums(TX(), mk))}
+    ${CAL.pick ? pickerHTML({ mk, year: CAL.year, first, last, actYear: 'calYearSh', actMonth: 'calMonthSh' }) : gridHTML({ mk, sel: S.selDay, today: T(), txs: TX(), rules: calRules(), act: 'calDaySh' })}
+    <p class="about" style="margin:10px 0 0;text-align:center">Ketuk tanggal untuk melihat rinciannya.</p>`;
+}
+function sCal() { sheetKey = 'cal'; openSheet('Lompat ke tanggal', calSheetHTML()); }
+/** Show a day in Rekap (switching month if needed) and bring its detail card into view. */
+function jumpToDay(day) {
+  const mk = day.slice(0, 7);
+  if (mk !== S.mk) { S.mk = mk; S.selDay = day; S.calPick = false; renderPanel(1); icons(); } else selectDay(day);
+  later(60, () => { const c = $('dayDet'); if (c) PANELS[1].scrollTo({ top: c.offsetTop - 70, behavior: reduced() ? 'auto' : 'smooth' }); });
+}
 function vRekap(swap) {
   const months = monthList(TX(), T());
   if (!S.mk || !months.includes(S.mk)) S.mk = months[months.length - 1];
   const mk = S.mk, idx = months.indexOf(mk), st = stats(TX(), mk), parts = Object.entries(st.byCat).map(([k, v]) => ({ k, v })).sort((a, b) => b.v - a.v);
   let note = 'Ketuk batang untuk melihat nominal harian.';
-  if (S.selDay && S.selDay.startsWith(mk)) note = `<b>${dayLabel(S.selDay, T())}</b> · ${money(st.byDay[S.selDay] || 0)} dari ${TX().filter((t) => t.date === S.selDay && t.type === 'out').length} transaksi`;
+  if (pickDay(mk)) note = `<b>${dayLabel(pickDay(mk), T())}</b> · ${money(st.byDayFlex[pickDay(mk)] || 0)} dari ${TX().filter((t) => t.date === pickDay(mk) && t.type === 'out' && !t.fixed).length} transaksi`;
   return `<div class="inner">
   <header class="top"><h2 class="title">Rekap</h2>
     <div class="month-sw"><button data-a="month" data-d="-1" ${idx <= 0 ? 'disabled' : ''} aria-label="Bulan sebelumnya"><i data-lucide="chevron-left"></i></button><span>${monthName(mk)}</span><button data-a="month" data-d="1" ${idx >= months.length - 1 ? 'disabled' : ''} aria-label="Bulan berikutnya"><i data-lucide="chevron-right"></i></button></div>
@@ -267,7 +329,9 @@ function vRekap(swap) {
   <div class="card"><h4>Ke mana uang pergi? <small>${parts.length ? 'ketuk warna' : ''}</small></h4>
     ${parts.length ? `<div class="donut-wrap">${donut(parts, st.out)}<div class="legend">${parts.map((p) => `<button data-a="drill" data-cat="${p.k}" style="--c:${CATS[p.k].c}"><i></i><span>${CATS[p.k].n}</span><em>${pct(p.v / st.out)}</em></button>`).join('')}</div></div>` : '<div class="empty">Belum ada pengeluaran di bulan ini.</div>'}</div>
   ${budgetCardHTML(mk, st)}
-  <div class="card chart"><h4>Pengeluaran harian <small>${st.n} transaksi</small></h4><div class="chart-note" id="daynote">${note}</div>${dailyChart(mk, st)}</div>
+  <div class="card cal-card" id="calCard">${calCardHTML(mk)}</div>
+  ${store.data.settings.showBars ? `<div class="card chart"><h4>Pengeluaran harian <small>${st.n} transaksi</small></h4><div class="chart-note" id="daynote">${note}</div>${dailyChart(mk, st)}</div>` : ''}
+  <div class="card" id="dayDet"><h4>Rincian per hari <button class="dd-cal" data-a="calOpen" aria-label="Lompat ke tanggal"><i data-lucide="calendar"></i>Lompat</button></h4><div id="ddBody">${dayDetailHTML(mk)}</div></div>
   <div class="card chart"><h4>Tren bulanan <span class="leg-inline"><span style="--c:var(--in)"><i></i>Masuk</span><span style="--c:var(--out)"><i></i>Keluar</span></span></h4>${trendChart(months.slice(Math.max(0, idx - 3), idx + 1))}</div>
   <div class="card"><h4>Catatan perencana keuangan</h4>${insights(mk, st, months)}</div>
   <button class="btn2 dash" data-a="excel" style="margin-top:4px"><i data-lucide="file-down"></i>Ekspor ke Excel</button>
@@ -397,7 +461,7 @@ function rulesCardHTML() {
     : '<p class="about" style="margin:0">Gaji, cicilan, atau langganan bisa dicatat otomatis setiap bulan. Buka transaksinya (misalnya gaji) di Beranda, lalu ketuk <b>Jadikan berulang</b>.</p>'}</div>`;
 }
 function vLainnya() {
-  const kw = Object.entries(store.data.learned), set = store.data.settings;
+  const kw = Object.entries(store.data.learned), set = store.data.settings, fk = set.fixedKeys || [];
   return `<div class="inner">
   <header class="top"><h2 class="title">Lainnya</h2></header>
   <div class="card"><h4>Profil</h4>
@@ -423,8 +487,9 @@ function vLainnya() {
   <div class="card"><h4>Kategori</h4>
     <button class="set-row" data-a="catsOpen"><span class="ic" style="--c:#8B5CF6"><i data-lucide="tags"></i></span><div class="t"><b>Kelola kategori</b><small>Tambah, ubah nama, ikon, warna, subkategori, atau sembunyikan</small></div><i data-lucide="chevron-right"></i></button></div>
   <div class="card"><h4>Kata & frasa yang diingat</h4>
-    <p class="about" style="margin:0">${kw.length ? 'Ketuk untuk melupakan satu ingatan.' : 'Belum ada. Saat mencatat lewat kalimat, ganti kategori di pratinjau; aplikasi akan mengingatnya.'}</p>
-    ${kw.length ? `<div class="kw">${kw.map(([w, v]) => `<button data-a="unlearn" data-w="${esc(w)}" style="--c:${CATS[v.cat]?.c || '#94A3B8'}">${esc(w)} → ${esc(CATS[v.cat]?.n || v.cat)} · ${esc(v.sub)}<i data-lucide="x"></i></button>`).join('')}</div>` : ''}</div>
+    <p class="about" style="margin:0">${kw.length || fk.length ? 'Ketuk untuk melupakan satu ingatan.' : 'Belum ada. Saat mencatat lewat kalimat, ganti kategori di pratinjau; aplikasi akan mengingatnya.'}</p>
+    ${kw.length ? `<div class="kw">${kw.map(([w, v]) => `<button data-a="unlearn" data-w="${esc(w)}" style="--c:${CATS[v.cat]?.c || '#94A3B8'}">${esc(w)} → ${esc(CATS[v.cat]?.n || v.cat)} · ${esc(v.sub)}<i data-lucide="x"></i></button>`).join('')}</div>` : ''}
+    ${fk.length ? `<div class="kw">${fk.map((w) => `<button data-a="unfix" data-w="${esc(w)}" style="--c:#64748B"><i data-lucide="lock" style="opacity:1"></i>${esc(w)} → tetap<i data-lucide="x"></i></button>`).join('')}</div>` : ''}</div>
   <div class="card"><h4>Data</h4>
     <button class="set-row" data-a="excel"><span class="ic" style="--c:#1E9E4F"><i data-lucide="file-down"></i></span><div class="t"><b>Ekspor ke Excel</b><small>Ringkasan, transaksi, dan per kategori (.xlsx)</small></div><i data-lucide="chevron-right"></i></button>
     <button class="set-row danger-row" data-a="wipe"><span class="ic" style="--c:#F43F5E"><i data-lucide="trash-2"></i></span><div class="t"><b>Hapus semua data</b><small>Transaksi, dompet, dan pengaturan di perangkat ini</small></div></button></div>
@@ -907,14 +972,15 @@ function closeSheet(instant) {
   const bd = L.querySelector('.backdrop,.peek-bg'); if (bd) { bd.style.transition = 'opacity .3s'; bd.style.opacity = '0'; }
   setTimeout(() => { if (L.contains(sh)) L.innerHTML = ''; }, 300);
 }
+function sTxInPlace(id) { sheetKey = 'tx:' + id; sTx(id); }
 function sTx(id) {
-  const t = TX().find((x) => x.id === id); if (!t) return; const c = catOf(t), w = W(t.wallet), rule = t.rec ? store.data.rules.find((r) => r.id === t.rec) : null;
+  const t = TX().find((x) => x.id === id); if (!t) return; if (!sheetKey) sheetKey = 'tx:' + id; const c = catOf(t), w = W(t.wallet), rule = t.rec ? store.data.rules.find((r) => r.id === t.rec) : null;
   openSheet('Detail transaksi', `<div class="det-top"><span class="ic" style="--c:${c.c}"><i data-lucide="${c.i}"></i></span><div class="a" style="color:${t.type === 'in' ? 'var(--in)' : t.type === 'tf' ? 'var(--transfer)' : 'var(--ink)'}">${t.type === 'in' ? '+' : t.type === 'out' ? '−' : ''}${money(t.amount)}</div><p>${esc(t.note)}</p></div>
   <div class="card" style="padding:4px 14px">
     <div class="kv" style="border-top:0"><span>Kategori</span><b>${t.type === 'tf' ? (t.debt ? c.n : 'Transfer') : `${c.n} · ${esc(t.sub)}`}</b></div>
     <div class="kv"><span>${t.type === 'tf' ? 'Dari → Ke' : 'Dompet'}</span><b>${t.type === 'tf' ? `${esc(w.name)} → ${esc(W(t.to).name)}` : esc(w.name)}</b></div>
     <div class="kv"><span>Tanggal</span><b>${longDate(t.date)}</b></div>
-    <div class="kv"><span>Buku</span><b>${(BOOKS[t.book] || BOOKS.pribadi).n}</b></div>${t.items?.length ? `<div class="kv tx-items"><span>Produk</span><div>${t.items.map((it) => `<div><span>${esc(it.name)}${it.qty > 1 && !/\(\d/.test(it.name) ? ` ×${it.qty}` : ''}</span><b>${rp(it.amount)}</b></div>`).join('')}</div></div>` : ''}${rule ? `<div class="kv"><span>Berulang</span><b>${scheduleLabel(rule)} · ${rule.auto ? 'otomatis' : 'tanya dulu'}</b></div>` : ''}</div>
+    <div class="kv"><span>Buku</span><b>${(BOOKS[t.book] || BOOKS.pribadi).n}</b></div>${t.type === 'out' && !t.debt && !t.inv ? `<button class="kv kv-btn" data-a="txFixed" data-id="${t.id}"><span><i data-lucide="lock"></i>Pengeluaran tetap</span><span class="sw ${t.fixed ? 'on' : ''}" role="switch" aria-checked="${!!t.fixed}"><i></i></span></button>` : ''}${t.items?.length ? `<div class="kv tx-items"><span>Produk</span><div>${t.items.map((it) => `<div><span>${esc(it.name)}${it.qty > 1 && !/\(\d/.test(it.name) ? ` ×${it.qty}` : ''}</span><b>${rp(it.amount)}</b></div>`).join('')}</div></div>` : ''}${rule ? `<div class="kv"><span>Berulang</span><b>${scheduleLabel(rule)} · ${rule.auto ? 'otomatis' : 'tanya dulu'}</b></div>` : ''}</div>
   ${t.debt ? `<button class="btn2 wide" data-a="debt" data-id="${t.debt}"><i data-lucide="hand-coins"></i>Buka catatan utang & piutang</button>` : t.inv ? `<button class="btn2 wide" data-a="asset" data-id="${t.inv}"><i data-lucide="chart-candlestick"></i>Buka aset investasi</button>` : txButtons(t, rule)}
   ${t.debtInit ? '' : `<button class="danger" data-a="del" data-id="${t.id}">Hapus transaksi</button>`}`);
 }
@@ -1106,6 +1172,7 @@ function rfInner() {
     <span class="lab">Ulangi</span><div class="seg" id="rfEvery" style="margin-bottom:12px"><span class="pill"></span><button class="${r.every === 'month' ? 'on' : ''}" data-a="rfEvery" data-v="month">Tiap bulan</button><button class="${r.every === 'week' ? 'on' : ''}" data-a="rfEvery" data-v="week">Tiap minggu</button></div>
     <span class="lab">${r.every === 'month' ? 'Tanggal' : 'Hari'}</span><div class="hscroll" id="rfDays">${days}</div>
     <span class="lab">Saat jatuh tempo</span><div class="seg" id="rfAuto" style="margin-bottom:10px"><span class="pill"></span><button class="${r.auto ? 'on' : ''}" data-a="rfAuto" data-v="1">Catat otomatis</button><button class="${r.auto ? '' : 'on'}" data-a="rfAuto" data-v="0">Tanya dulu</button></div>
+    ${r.type === 'out' ? `<button class="kv kv-btn rf-fx" data-a="rfFixed"><span><i data-lucide="lock"></i>Pengeluaran tetap<small>Tidak dihitung sebagai pengeluaran terboros</small></span><span class="sw ${r.fixed ? 'on' : ''}" role="switch" aria-checked="${!!r.fixed}"><i></i></span></button>` : ''}
     <p class="form-note">Berikutnya <b>${longDate(next)}</b>. ${r.auto ? 'Langsung dicatat saat aplikasi dibuka pada hari itu atau sesudahnya. Cocok untuk gaji dan cicilan tetap.' : 'Muncul di Beranda untuk dikonfirmasi, dan nominalnya bisa diubah. Cocok untuk listrik atau tagihan yang berubah-ubah.'}</p>
     <button class="primary" data-a="rfSave"><i data-lucide="check"></i>${RF.isNew ? 'Jadikan berulang' : 'Simpan'}</button>
     ${RF.isNew ? '' : '<button class="danger" data-a="rfDelete">Hentikan pengulangan</button><p class="form-note" style="margin-top:10px;text-align:center">Transaksi yang sudah tercatat tidak ikut terhapus.</p>'}`;
@@ -1753,18 +1820,30 @@ function onClick(e) {
     case 'restore': $('restoreFile')?.click(); break;
     case 'month': {
       const months = monthList(TX(), T()), i = months.indexOf(S.mk) + Number(d.d); if (i < 0 || i >= months.length) break;
-      S.mk = months[i]; S.selDay = null; const sc = PANELS[1].scrollTop; renderPanel(1, Number(d.d) > 0 ? 'swap-l' : 'swap-r'); icons(); PANELS[1].scrollTop = sc; playPanel(1); break;
+      S.mk = months[i]; S.selDay = null; S.calPick = false; const sc = PANELS[1].scrollTop; renderPanel(1, Number(d.d) > 0 ? 'swap-l' : 'swap-r'); icons(); PANELS[1].scrollTop = sc; playPanel(1); break;
     }
     case 'drill': { const p = e.clientX ? relPt(e.clientX, e.clientY) : rel(el); openDrill(d.cat, p.x, p.y); break; }
     case 'drillsub': S.drill.sub = S.drill.sub === d.sub ? null : d.sub; rerenderDrill(); break;
     case 'drillall': S.drill.sub = null; rerenderDrill(); break;
     case 'undrill': closeDrill(); break;
     case 'day': {
-      S.selDay = S.selDay === d.d ? null : d.d; PANELS[1].querySelectorAll('.bar').forEach((b) => b.classList.toggle('sel', b.dataset.d === S.selDay));
-      const st = stats(TX(), S.mk), n = $('daynote');
-      if (n) n.innerHTML = S.selDay ? `<b>${dayLabel(S.selDay, T())}</b> · ${money(st.byDay[S.selDay] || 0)} dari ${TX().filter((t) => t.date === S.selDay && t.type === 'out').length} transaksi` : 'Ketuk batang untuk melihat nominal harian.';
-      break;
+      selectDay(d.d); break;
     }
+    /* calendar */
+    case 'calDay': jumpToDay(d.d); break;
+    case 'calToday': jumpToDay(T()); break;
+    case 'calPickIn': S.calPick = !S.calPick; S.calY = Number(S.mk.slice(0, 4)); redrawCal(); break;
+    case 'calYearIn': S.calY += Number(d.s); redrawCal(); break;
+    case 'calMonthIn': S.mk = d.v; S.selDay = null; S.calPick = false; { const sc = PANELS[1].scrollTop; renderPanel(1); icons(); PANELS[1].scrollTop = sc; } break;
+    case 'barsToggle': store.setSetting('showBars', !store.data.settings.showBars); { const sc = PANELS[1].scrollTop; renderPanel(1); icons(); PANELS[1].scrollTop = sc; } break;
+    case 'calOpen': CAL.mk = S.mk || T().slice(0, 7); CAL.pick = false; sCal(); break;
+    case 'calStepSh': CAL.mk = addMonths(CAL.mk, Number(d.s)); sCal(); break;
+    case 'calPickSh': CAL.pick = !CAL.pick; CAL.year = Number(CAL.mk.slice(0, 4)); sCal(); break;
+    case 'calYearSh': CAL.year += Number(d.s); sCal(); break;
+    case 'calMonthSh': CAL.mk = d.v; CAL.pick = false; sCal(); break;
+    case 'calTodaySh': closeSheet(); jumpToDay(T()); break;
+    case 'calDaySh': closeSheet(); jumpToDay(d.d); break;
+    case 'daystep': { const nx = addDays(pickDay(S.mk), Number(d.s)); if (nx.startsWith(S.mk)) selectDay(nx); break; }
     case 'wcard': { const prev = S.wsel; S.wsel = S.wsel === d.id ? null : d.id; PANELS[2].firstElementChild.classList.toggle('hide-sel', !!S.wsel); layoutStack(); if (S.wsel) { showCard(S.wsel, 160); PANELS[2].scrollTo({ top: 0, behavior: 'smooth' }); } if (prev && prev !== S.wsel) hideCard(prev, 120); break; }
     case 'wclose': { const prev = S.wsel; S.wsel = null; PANELS[2].firstElementChild.classList.remove('hide-sel'); layoutStack(); if (prev) hideCard(prev, 300); break; }
     case 'wall': {
@@ -1965,6 +2044,14 @@ function onClick(e) {
     case 'rfEvery': if (RF.r.every !== d.v) { RF.r.every = d.v; RF.r.day = d.v === 'week' ? toD(RF.r.last).getDay() : Number(RF.r.last.slice(8)); rfDraw(); } break;
     case 'rfDay': RF.r.day = Number(d.v); rfDraw(); break;
     case 'rfAuto': RF.r.auto = d.v === '1'; rfDraw(); break;
+    case 'rfFixed': RF.r.fixed = !RF.r.fixed; rfDraw(); break;
+    case 'txFixed': {
+      const t = TX().find((x) => x.id === d.id); if (!t) break; const on = !t.fixed, key = store.setFixed(t.id, on);
+      sheetKey = null; refresh(); sTxInPlace(t.id);
+      toast(on ? (key ? `Ditandai tetap. Catatan “${key}” berikutnya otomatis tetap` : 'Ditandai sebagai pengeluaran tetap') : (key ? `Bukan pengeluaran tetap lagi; “${key}” dilupakan` : 'Bukan pengeluaran tetap lagi'));
+      break;
+    }
+    case 'unfix': store.forgetFixedKey(d.w); renderPanel(3); icons(); toast(`“${d.w}” tidak lagi otomatis tetap`); break;
     case 'rfSave': {
       const r = RF.r; if (!r.amount) { toast('Isi nominalnya dulu'); $('rfAmt')?.focus(); break; }
       store.saveRule(r); if (RF.txId) store.updateTx(RF.txId, { rec: r.id });

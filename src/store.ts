@@ -3,6 +3,7 @@
 import Dexie, { type Table } from 'dexie';
 import { applyCatEdits, DEFAULT_SETTINGS, type Settings, type Tx, type Wallet } from './model.ts';
 import type { Rule } from './recurring.ts';
+import { fixedMatch, learnKey } from './parser.ts';
 import type { Debt, Goal } from './plan.ts';
 import type { Asset } from './invest.ts';
 
@@ -46,7 +47,7 @@ const fail = (e: unknown) => {
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
 
 /** Settings that belong to this device only: never put in backups, never overwritten by a restore. */
-export const DEVICE_KEYS: (keyof Settings)[] = ['pinHash', 'pinSalt', 'pinLen', 'bioId', 'lockAfter', 'theme', 'cloudEmail', 'cloudLastSync', 'cloudDirty', 'lpLearned', 'curBook', 'receiptMode'];
+export const DEVICE_KEYS: (keyof Settings)[] = ['pinHash', 'pinSalt', 'pinLen', 'bioId', 'lockAfter', 'theme', 'cloudEmail', 'cloudLastSync', 'cloudDirty', 'lpLearned', 'curBook', 'receiptMode', 'showBars'];
 
 /* ---------- books: Pribadi / Freelance / Usaha ---------- */
 export const curBook = (): string => (data.settings.books || ['pribadi']).includes(data.settings.curBook) ? data.settings.curBook : 'pribadi';
@@ -82,6 +83,8 @@ export type NewTx = Omit<Tx, 'id' | 'createdAt' | 'updatedAt' | 'book'> & { book
 export function addTx(o: NewTx): Tx {
   const now = Date.now();
   const t: Tx = { book: curBook(), ...o, id: uid(), createdAt: now, updatedAt: now };
+  // remembered fixed expenses ("sewa kos") are marked by themselves
+  if (t.fixed === undefined && t.type === 'out' && !t.debt && !t.inv && fixedMatch(t.note, data.settings.fixedKeys)) t.fixed = true;
   data.txs.push(t);
   db.tx.put(t).catch(fail);
   changed();
@@ -204,6 +207,24 @@ export function setSetting<K extends keyof Settings>(key: K, value: Settings[K])
   data.settings[key] = value;
   db.settings.put({ key, value }).catch(fail);
   if (!DEVICE_KEYS.includes(key) && key !== 'onboarded') changed();
+}
+
+/**
+ * Mark or unmark a transaction as a fixed expense. Marking remembers its note phrase so later ones are marked
+ * by themselves; unmarking forgets it. A transaction from a recurring schedule carries the choice to the schedule.
+ * Returns the phrase remembered or forgotten ('' if the note has none).
+ */
+export function setFixed(id: string, on: boolean): string {
+  const t = data.txs.find((x) => x.id === id); if (!t) return '';
+  updateTx(id, { fixed: on });
+  const r = t.rec ? data.rules.find((x) => x.id === t.rec) : null;
+  if (r && !!r.fixed !== on) saveRule({ ...r, fixed: on });
+  const key = learnKey(t.note), keys = data.settings.fixedKeys || [];
+  if (key) setSetting('fixedKeys', on ? Array.from(new Set([...keys, key])) : keys.filter((k) => k !== key));
+  return key;
+}
+export function forgetFixedKey(key: string): void {
+  setSetting('fixedKeys', (data.settings.fixedKeys || []).filter((k) => k !== key));
 }
 
 /** Save the user's category changes and rebuild the category list from them. */

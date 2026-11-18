@@ -5,10 +5,14 @@ import { addMonths } from './format.ts';
 export interface MonthStats {
   inc: number; out: number; n: number;
   byCat: Record<string, number>; bySub: Record<string, number>; byDay: Record<string, number>;
+  /** Fixed expenses (rent, instalments) within `out`. */
+  fixed: number;
+  /** Spending without fixed expenses, per day and per category: what "most spent" views use. */
+  byDayFlex: Record<string, number>; byCatFlex: Record<string, number>;
 }
 
 export function stats(txs: Tx[], mk: string, maxDay = 0): MonthStats {
-  const st: MonthStats = { inc: 0, out: 0, n: 0, byCat: {}, bySub: {}, byDay: {} };
+  const st: MonthStats = { inc: 0, out: 0, n: 0, byCat: {}, bySub: {}, byDay: {}, fixed: 0, byDayFlex: {}, byCatFlex: {} };
   for (const t of txs) {
     if (!t.date.startsWith(mk)) continue;
     if (maxDay && Number(t.date.slice(8)) > maxDay) continue;
@@ -19,6 +23,8 @@ export function stats(txs: Tx[], mk: string, maxDay = 0): MonthStats {
       const sk = t.cat + '|' + t.sub;
       st.bySub[sk] = (st.bySub[sk] || 0) + t.amount;
       st.byDay[t.date] = (st.byDay[t.date] || 0) + t.amount;
+      if (t.fixed) st.fixed += t.amount;
+      else { st.byDayFlex[t.date] = (st.byDayFlex[t.date] || 0) + t.amount; st.byCatFlex[t.cat] = (st.byCatFlex[t.cat] || 0) + t.amount; }
     }
   }
   return st;

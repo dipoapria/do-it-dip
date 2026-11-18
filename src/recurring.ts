@@ -18,6 +18,8 @@ export interface Rule {
   day: number;
   /** true = record by itself when due; false = ask on Beranda first (amount may differ, e.g. electricity). */
   auto: boolean;
+  /** Occurrences are fixed expenses (see Tx.fixed). */
+  fixed?: boolean;
   /** Last date that was handled (recorded or skipped), YYYY-MM-DD. Nothing on or before it is due again. */
   last: string;
   active: boolean;
@@ -71,6 +73,7 @@ export function occurrenceTx(rule: Rule, date: string, now: number, amount = rul
   return {
     id: occurrenceId(rule.id, date), date, type: rule.type, cat: rule.cat, sub: rule.sub, amount,
     wallet: rule.wallet, to: rule.to, note: rule.note, book: rule.book, rec: rule.id, createdAt: now, updatedAt: now,
+    ...(rule.fixed && rule.type === 'out' ? { fixed: true } : {}),
   };
 }
 
@@ -79,7 +82,7 @@ export function ruleFromTx(t: Tx, id: string, every: Every, now: number): Rule {
   return {
     id, type: t.type, amount: t.amount, cat: t.cat, sub: t.sub, wallet: t.wallet, to: t.to, note: t.note, book: t.book,
     every, day: every === 'week' ? weekday(t.date) : parse(t.date).d, auto: t.type === 'in' || t.type === 'tf',
-    last: t.date, active: true, createdAt: now,
+    last: t.date, active: true, createdAt: now, ...(t.fixed ? { fixed: true } : {}),
   };
 }
 
