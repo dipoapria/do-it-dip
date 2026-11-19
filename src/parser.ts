@@ -1,6 +1,7 @@
 // Natural-language transaction parser (Bahasa Indonesia) + live highlighting of recognised words.
 import { addDays, pad, esc } from './format.ts';
-import { CATS, KW, KW_IN, type TxType } from './model.ts';
+import { CATS, KW, KW_IN, kwBest, type TxType } from './model.ts';
+import { histHit, type HistHit } from './smart.ts';
 
 export interface WalletAlias { id: string; aliases: string[] }
 export interface ParseCtx {
@@ -10,11 +11,15 @@ export interface ParseCtx {
   defaults: { bank: string; cash: string };
   /** Extra keyword rules of the current book, checked before the general ones. */
   kw?: [RegExp, string, string][];
+  /** Words that keep ending up in one subcategory (see smart.ts). */
+  hist?: Record<string, HistHit>;
 }
 export interface Parsed {
   raw: string; amount: number; assumed: boolean; type: TxType;
   cat: string | null; sub: string | null; wallet: string; to: string | null;
   date: string; note: string; learned: boolean;
+  /** Guessed from the person's history: the word and how often it was saved there. */
+  hist?: { word: string; n: number };
 }
 
 const reEsc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -104,10 +109,15 @@ export function parseLine(raw: string, ctx: ParseCtx): Parsed {
   if (hit && !CATS[hit.cat]) { hit = null; r.learned = false; } // taught a category that no longer exists
   // built-in rules never lead into a category the user has hidden
   const open = (c: string) => !!CATS[c] && !CATS[c].hidden;
+  // then the person's own habits (from saved transactions), then the book's words, then the built-in word list
+  if (!hit) { const h = histHit(t, ctx.hist); if (h && open(h.cat)) { hit = { cat: h.cat, sub: h.sub }; r.hist = { word: h.word, n: h.n }; } }
   if (!hit) for (const [rx, c, s] of ctx.kw || []) if (open(c) && rx.test(t)) { hit = { cat: c, sub: s }; break; }
-  if (!hit) for (const [rx, c, s] of KW_IN) if (open(c) && rx.test(t)) { hit = { cat: c, sub: s }; break; }
-  if (!hit && /\b(terima|dapat|dapet|diterima|pemasukan|jual|masuk)\b/.test(t)) hit = { cat: 'masuk_lain', sub: 'Lainnya' };
-  if (!hit) for (const [rx, c, s] of KW) if (open(c) && rx.test(t)) { hit = { cat: c, sub: s }; break; }
+  if (!hit) {
+    const b = kwBest(t, KW_IN.filter(([, c]) => open(c)), KW.filter(([, c]) => open(c)));
+    // "terima", "dapat", "masuk": money coming in, unless the best word is itself income
+    if (/\b(terima|dapat|dapet|diterima|pemasukan|jual|masuk)\b/.test(t) && !(b && CATS[b.cat]?.inc)) hit = { cat: 'masuk_lain', sub: 'Lainnya' };
+    else if (b) hit = { cat: b.cat, sub: b.sub };
+  }
   if (!hit) hit = { cat: 'lain', sub: 'Lainnya' };
   // the user may have removed or replaced that subcategory
   if (!CATS[hit.cat].subs.includes(hit.sub)) hit.sub = CATS[hit.cat].subs[0];

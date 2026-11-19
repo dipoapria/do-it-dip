@@ -78,18 +78,26 @@ export interface Settings {
   investTypes: string[];
   /** The user's changes to categories and subcategories (see applyCatEdits). */
   catEdits: Record<string, CatEdit>;
+  /** Where a removed, renamed or moved subcategory went ("makan|Makan siang" → "makan|Makan"); built-in words follow it. */
+  subMap: Record<string, string>;
+  /** Built-in words the user took out of a subcategory. */
+  kwOff: string[];
+  /** Transactions saved from this moment on teach the category guess (older ones were guessed by the word list). */
+  histFrom: number;
 }
 
-export const DEFAULT_SETTINGS: Settings = { name: '', onboarded: false, theme: 'system', lpLearned: false, pinHash: '', pinSalt: '', pinLen: 4, bioId: '', lockAfter: 60, cloudEmail: '', cloudLastSync: '', cloudDirty: false, budgets: {}, bookBudgets: {}, books: ['pribadi'], curBook: 'pribadi', receiptMode: 'ai', investTypes: ['saham', 'reksadana', 'obligasi', 'emas', 'deposito', 'kripto'], catEdits: {}, showBars: false, fixedKeys: [] };
+export const DEFAULT_SETTINGS: Settings = { name: '', onboarded: false, theme: 'system', lpLearned: false, pinHash: '', pinSalt: '', pinLen: 4, bioId: '', lockAfter: 60, cloudEmail: '', cloudLastSync: '', cloudDirty: false, budgets: {}, bookBudgets: {}, books: ['pribadi'], curBook: 'pribadi', receiptMode: 'ai', investTypes: ['saham', 'reksadana', 'obligasi', 'emas', 'deposito', 'kripto'], catEdits: {}, showBars: false, fixedKeys: [], subMap: {}, kwOff: [], histFrom: 0 };
+
+import { DICT, DICT_INCOME } from './dict.ts';
 
 export interface Category { n: string; c: string; i: string; subs: string[]; inc?: boolean; /** only offered in this book */ book?: string; /** not offered in pickers (old transactions keep showing it) */ hidden?: boolean; /** made by the user */ custom?: boolean }
 /** A user's change to a built-in category, or a whole category of their own (custom: true). */
 export interface CatEdit { n?: string; c?: string; i?: string; subs?: string[]; hidden?: boolean; inc?: boolean; custom?: boolean }
 
 export const CATS: Record<string, Category> = {
-  makan: { n: 'Makan & Minum', c: '#FF7A45', i: 'utensils', subs: ['Makan siang', 'Kopi & minuman', 'Pesan antar', 'Jajan'] },
-  transport: { n: 'Transportasi', c: '#3D8BFF', i: 'fuel', subs: ['Bensin', 'Parkir', 'Ojek online', 'Servis'] },
-  belanja: { n: 'Belanja', c: '#E04BB5', i: 'shopping-bag', subs: ['Kebutuhan harian', 'Belanja online', 'Pakaian'] },
+  makan: { n: 'Makan & Minum', c: '#FF7A45', i: 'utensils', subs: ['Makan', 'Kopi & minuman', 'Pesan antar', 'Jajan'] },
+  transport: { n: 'Transportasi', c: '#3D8BFF', i: 'fuel', subs: ['Bensin', 'Parkir', 'Ojek online', 'Tol & tiket', 'Servis'] },
+  belanja: { n: 'Belanja', c: '#E04BB5', i: 'shopping-bag', subs: ['Kebutuhan harian', 'Belanja online', 'Pakaian', 'Perawatan diri'] },
   rumah: { n: 'Tempat tinggal', c: '#0EA5A4', i: 'house', subs: ['Sewa & kos', 'Cicilan rumah', 'Perabot', 'Perbaikan rumah', 'Iuran lingkungan'] },
   tagihan: { n: 'Tagihan', c: '#F0A010', i: 'zap', subs: ['Listrik', 'Internet & pulsa', 'Air', 'Cicilan & paylater'] },
   hiburan: { n: 'Hiburan', c: '#8B5CF6', i: 'clapperboard', subs: ['Nonton', 'Langganan', 'Jalan-jalan'] },
@@ -174,54 +182,51 @@ export const BOOK_KW: Record<string, [RegExp, string, string][]> = {
   ],
 };
 
-// Keyword → category rules for the sentence parser. First match wins, so specific rules come first.
-export const KW: [RegExp, string, string][] = [
-  [/\b(air mineral|aqua|le minerale|galon)\b/, 'belanja', 'Kebutuhan harian'], // before "air" (PDAM) and "minum"
-  [/\b(sewa (kos|kost|kamar|rumah|kontrakan|apartemen)|bayar (kos|kost|kontrakan)|uang (kos|kost)|kos|kost|kosan|kontrakan|ngontrak)\b/, 'rumah', 'Sewa & kos'],
-  [/\b(kpr|cicilan rumah|angsuran rumah)\b/, 'rumah', 'Cicilan rumah'],
-  [/\b(kasur|lemari|kursi|meja|rak|kipas|kulkas|dispenser|kompor|perabot|sprei|bantal|gorden|lampu)\b/, 'rumah', 'Perabot'],
-  [/\b(tukang|renovasi|cat rumah|genteng|ledeng|perbaikan rumah|servis ac|service ac)\b/, 'rumah', 'Perbaikan rumah'],
-  [/\b(iuran (rt|rw|sampah|keamanan|kebersihan|lingkungan)|uang sampah|ronda|ipl)\b/, 'rumah', 'Iuran lingkungan'],
-  [/\b(bpjs)\b/, 'asuransi', 'BPJS'],
-  [/\b(asuransi|premi|prudential|allianz|manulife|axa)\b/, 'asuransi', 'Asuransi'],
-  [/\b(pajak (motor|mobil|kendaraan)|stnk|samsat|perpanjang (stnk|sim))\b/, 'asuransi', 'Pajak kendaraan'],
-  [/\b(pbb|pajak|spt)\b/, 'asuransi', 'PBB & pajak lain'],
-  [/\b(popok|pampers|susu formula|bubur bayi|baju bayi|bayi)\b/, 'keluarga', 'Kebutuhan bayi'],
-  [/\b(kirim (ibu|ayah|bapak|mama|papa|ortu|orang tua)|untuk (ibu|ayah|bapak|mama|papa|ortu|orang tua)|ortu|orang tua|mertua)\b/, 'keluarga', 'Orang tua'],
-  [/\b(uang saku|uang jajan|spp|untuk (adik|anak)|jajan (adik|anak))\b/, 'keluarga', 'Anak & adik'],
-  [/\b(gofood|grabfood|shopeefood|pesan antar|delivery)\b/, 'makan', 'Pesan antar'],
-  [/\b(kopi|ngopi|kopsu|latte|teh|boba|jus|minum|es)\b/, 'makan', 'Kopi & minuman'],
-  [/\b(jajan|cemilan|snack|gorengan|roti)\b/, 'makan', 'Jajan'],
-  [/\b(makan|sarapan|nasi|bakso|mie|mi|pempek|tekwan|model|martabak|ayam|soto|warung|lunch|dinner|padang|celor|pindang)\b/, 'makan', 'Makan siang'],
-  [/\b(bensin|pertalite|pertamax|bbm|spbu|solar)\b/, 'transport', 'Bensin'],
-  [/\b(parkir)\b/, 'transport', 'Parkir'],
-  [/\b(gojek|goride|gocar|grab|maxim|ojek|ojol|taksi|angkot|lrt)\b/, 'transport', 'Ojek online'],
-  [/\b(servis|service|oli|bengkel|ban)\b/, 'transport', 'Servis'],
-  [/\b(shopee|tokopedia|tokped|lazada|checkout|online)\b/, 'belanja', 'Belanja online'],
-  [/\b(baju|celana|sepatu|kaos|jilbab|kemeja|batik|sandal)\b/, 'belanja', 'Pakaian'],
-  [/\b(indomaret|alfamart|alfamidi|minimarket|supermarket|sabun|sampo|beras|minyak|galon|telur|gula|belanja|pasar)\b/, 'belanja', 'Kebutuhan harian'],
-  [/\b(listrik|pln|token)\b/, 'tagihan', 'Listrik'],
-  [/\b(wifi|internet|indihome|pulsa|kuota|paket data)\b/, 'tagihan', 'Internet & pulsa'],
-  [/\b(cicilan|angsuran|kredivo|akulaku|paylater|spaylater)\b/, 'tagihan', 'Cicilan & paylater'],
-  [/\b(pdam|air)\b/, 'tagihan', 'Air'],
-  [/\b(nonton|bioskop|film|xxi|cgv)\b/, 'hiburan', 'Nonton'],
-  [/\b(netflix|spotify|youtube|langganan|disney|vidio)\b/, 'hiburan', 'Langganan'],
-  [/\b(liburan|wisata|jalan-jalan|tiket|hotel)\b/, 'hiburan', 'Jalan-jalan'],
-  [/\b(obat|apotek|vitamin)\b/, 'kesehatan', 'Obat'],
-  [/\b(dokter|klinik|rumah sakit|rs|periksa)\b/, 'kesehatan', 'Dokter'],
-  [/\b(buku|alat tulis|atk)\b/, 'pendidikan', 'Buku'],
-  [/\b(kursus|les|kelas|pelatihan|webinar|seminar)\b/, 'pendidikan', 'Kursus'],
-  [/\b(infaq|infak|sedekah|zakat|donasi|masjid|amal)\b/, 'sosial', 'Infaq & sedekah'],
-  [/\b(arisan)\b/, 'sosial', 'Arisan'],
-  [/\b(kondangan|nikahan|kado|sumbangan|takziah|hajatan)\b/, 'sosial', 'Kondangan'],
-  [/\b(admin|biaya bank|biaya adm)\b/, 'lain', 'Biaya bank'],
-];
-export const KW_IN: [RegExp, string, string][] = [
-  [/\b(gaji|gajian|salary)\b/, 'gaji', 'Gaji bulanan'],
-  [/\b(honor|fee|bonus|thr|insentif|tunjangan|lembur)\b/, 'bonus', 'Honor'],
-  [/\b(cashback|refund)\b/, 'masuk_lain', 'Cashback'],
-  [/\b(bunga)\b/, 'masuk_lain', 'Bunga'],
-];
+// Keyword → category rules for the sentence parser, built from the word list in dict.ts (see applyDict).
+/** Subcategories added to the built-in categories after people may already have edited them (see store migration). */
+export const NEW_BASE_SUBS: Record<string, string[]> = { transport: ['Tol & tiket'], belanja: ['Perawatan diri'] };
+const wordRe = (words: string[]) => new RegExp('(?<![a-z0-9])(' + words.slice().sort((a, b) => b.length - a.length).map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/ /g, '\\s+')).join('|') + ')(?![a-z0-9])');
+/** Expense rules [regex, cat, sub] (refilled by applyDict). */
+export const KW: [RegExp, string, string][] = [];
+/** Income rules (refilled by applyDict). */
+export const KW_IN: [RegExp, string, string][] = [];
+/** The word list as it is now: built-in words minus the ones taken out, pointing at where their subcategory went. */
+export const DICT_NOW: { cat: string; sub: string; words: string[] }[] = [];
+/** Follow subMap redirects ("cat|sub" → "cat|sub"), at most a few hops. */
+export function resolveSub(map: Record<string, string> | undefined, cat: string, sub: string): { cat: string; sub: string } {
+  let k = cat + '|' + sub;
+  for (let n = 0; n < 8 && map && map[k]; n++) k = map[k];
+  const p = k.indexOf('|');
+  return { cat: k.slice(0, p), sub: k.slice(p + 1) };
+}
+export function applyDict(subMap?: Record<string, string>, kwOff?: string[]): void {
+  const off = new Set(kwOff || []);
+  KW.length = 0; KW_IN.length = 0; DICT_NOW.length = 0;
+  for (const e of DICT) {
+    const words = e.words.filter((w) => !off.has(w));
+    if (!words.length) continue;
+    const to = resolveSub(subMap, e.cat, e.sub);
+    DICT_NOW.push({ ...to, words });
+    (DICT_INCOME.has(e.cat) ? KW_IN : KW).push([wordRe(words), to.cat, to.sub]);
+  }
+}
+applyDict();
+/**
+ * The best rule for a text: the one whose matched word or phrase is longest ("air mineral" over "air",
+ * "upah tukang" over "upah"); on a tie the rule listed first. Returns the matched word too.
+ */
+export function kwBest(text: string, ...lists: [RegExp, string, string][][]): { cat: string; sub: string; word: string; inc: boolean } | null {
+  let best: { cat: string; sub: string; word: string; inc: boolean } | null = null;
+  lists.forEach((list) => {
+    for (const [re, cat, sub] of list) {
+      const g = new RegExp(re.source, 'g');
+      let m: RegExpExecArray | null, len = 0, word = '';
+      while ((m = g.exec(text))) { if (!m[0].length) { g.lastIndex++; continue; } if (m[0].length > len) { len = m[0].length; word = m[0]; } }
+      if (len && (!best || len > best.word.length)) best = { cat, sub, word, inc: list === KW_IN };
+    }
+  });
+  return best;
+}
 
 export const WALLET_COLORS = ['#0F8B8D', '#6D3FD8', '#00A5CF', '#F25A24', '#2F7CF6', '#2E9E58', '#E04BB5', '#C2410C', '#1D1641', '#B45309'];
 

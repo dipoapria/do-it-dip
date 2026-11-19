@@ -12,6 +12,7 @@ Perbarui file ini setiap ada fitur yang selesai, supaya tidak ada yang terlewat.
 |---|---|---|
 | Catat lewat kalimat, pewarnaan kata, banyak baris sekaligus | mockup v2 | ✅ |
 | Belajar dari koreksi kategori | mockup v1 | ✅ |
+| **Kelola subkategori + tebakan kategori lebih pintar** | permintaan | ✅ tiap sub bisa diganti nama, dipindah ke kategori lain, digabung (transaksi, jadwal, dan kata kunci ikut), dan diberi kata kunci sendiri (kata yang dipakai sub lain dipindah, dengan pemberitahuan). Saat mencatat: chip *Sub baru* (langsung dipakai), *Kelola*, *Kategori baru*, dan tahan lama chip untuk mengatur. Sub diurutkan paling sering dipakai. Kamus bawaan ±1.800 kata (termasuk makanan Palembang); kata/frasa terpanjang menang. Belajar dari riwayat: kata yang ≥2× dan ≥60% disimpan di satu sub menang atas kamus (hanya transaksi sejak fitur ini, 19 Nov 2026). "Makan siang" menjadi "Makan"; sub baru Tol & tiket, Perawatan diri |
 | Input manual dengan keypad | mockup v1 | ✅ |
 | Ubah, duplikat, hapus + urungkan | tambahan Tahap 1 | ✅ |
 | Tekan lama transaksi untuk aksi cepat | mockup v2 | ✅ |
@@ -74,5 +75,6 @@ Perbarui file ini setiap ada fitur yang selesai, supaya tidak ada yang terlewat.
 - **Struk:** src/scan.ts (alur), src/imgproc.ts (olah gambar, dites), src/receipt.ts (baca produk/total, dites). Lab pengukur di tools/ocr-lab (jalankan `npx vite --port 5199`, buka /tools/ocr-lab/?n=2&pipe=new): struk tiruan 8 jenis × 4 tingkat kesulitan dengan kunci jawaban.
 - **Investasi:** src/invest.ts (hitungan murni + tes). Beli/jual = transfer lewat dompet semu `inv:<id>` (`inv-open` untuk kepemilikan lama); aset di tabel `assets` (Dexie v4), ikut cadangan.
 - **Kategori:** `CATS` dibangun ulang dari `BASE_CATS` + `settings.catEdits` oleh `applyCatEdits` (model.ts), dipanggil saat load dan `store.setCatEdits`. Kategori buatan sendiri berkunci `c-…`; yang masih dipakai transaksi hanya boleh disembunyikan, tidak dihapus. Ingatan: kunci `learned` boleh berupa frasa (parser mencocokkan yang terpanjang dulu; `learnKey`).
+- **Kata kunci & subkategori:** kamus di src/dict.ts → `applyDict(subMap, kwOff)` (model.ts) membangun `KW`/`KW_IN`; `kwBest` memilih kecocokan terpanjang. `settings.subMap` mencatat ke mana sub yang diganti nama/dipindah/digabung pergi (kata bawaan ikut), `kwOff` = kata bawaan yang dimatikan, kata sendiri = `learned`. Operasi di store.ts (`moveSub`, `addSub`, `removeSub`, `addWord`, `dropWord`). Riwayat: src/smart.ts (`buildHistory` sejak `histFrom`). Migrasi sekali di `load` saat `subMap` belum ada.
 - **Kalender:** hitungan di src/calendar.ts (tes), tampilan bersama HP/laptop di src/calview.ts. `showBars` = kunci perangkat.
 - **Excel:** src/excel.ts membangun isi lembar (dites di Node) lalu ditulis dengan write-excel-file (dimuat hanya saat ekspor).

@@ -1,7 +1,7 @@
 // Local storage on the device (IndexedDB via Dexie). The UI reads the in-memory `data`;
 // every change is written to memory first (instant UI) and then persisted.
 import Dexie, { type Table } from 'dexie';
-import { applyCatEdits, DEFAULT_SETTINGS, type Settings, type Tx, type Wallet } from './model.ts';
+import { applyCatEdits, applyDict, BASE_CATS, CATS, DEFAULT_SETTINGS, DICT_NOW, NEW_BASE_SUBS, type CatEdit, type Settings, type Tx, type Wallet } from './model.ts';
 import type { Rule } from './recurring.ts';
 import { fixedMatch, learnKey } from './parser.ts';
 import type { Debt, Goal } from './plan.ts';
@@ -59,7 +59,10 @@ export const bookWallets = (): Wallet[] => { const b = curBook(); return data.wa
 /* ---------- change signal (drives automatic online backup) ---------- */
 let changeListener: (() => void) | null = null;
 export function onChange(fn: () => void): void { changeListener = fn; }
-function changed(): void { if (changeListener) changeListener(); }
+let revision = 0;
+/** Goes up on every change of the data (lets screens cache what they derive from it). */
+export const rev = (): number => revision;
+function changed(): void { revision++; if (changeListener) changeListener(); }
 
 export async function load(): Promise<void> {
   const [t, w, l, s, r, g, d] = await Promise.all([db.tx.toArray(), db.wallets.toArray(), db.learned.toArray(), db.settings.toArray(), db.rules.toArray(), db.goals.toArray(), db.debts.toArray()]);
@@ -69,9 +72,36 @@ export async function load(): Promise<void> {
   data.goals = g;
   data.debts = d;
   data.assets = await db.assets.toArray();
-  applyCatEdits(data.settings.catEdits);
   data.learned = Object.fromEntries(l.map((x) => [x.word, { cat: x.cat, sub: x.sub }]));
   data.settings = { ...DEFAULT_SETTINGS, ...Object.fromEntries(s.map((x) => [x.key, x.value])) } as Settings;
+  if (!s.some((x) => x.key === 'subMap')) migrateSubs();
+  applyCatEdits(data.settings.catEdits);
+  applyDict(data.settings.subMap, data.settings.kwOff);
+  revision++;
+}
+
+/**
+ * Once, when subcategory management arrives: "Makan siang" becomes "Makan" (transactions, schedules, remembered
+ * words, the user's own list), new built-in subcategories are added to lists the user had already edited, and
+ * learning from history starts now.
+ */
+function migrateSubs(): void {
+  const st = data.settings, edits: Record<string, CatEdit> = JSON.parse(JSON.stringify(st.catEdits || {}));
+  for (const [k, x] of Object.entries(edits)) {
+    if (!BASE_CATS[k] || !x.subs) continue;
+    x.subs = x.subs.map((v) => (k === 'makan' && v === 'Makan siang' ? 'Makan' : v));
+    for (const n of NEW_BASE_SUBS[k] || []) if (!x.subs.includes(n)) x.subs.push(n);
+  }
+  const txs = data.txs.filter((t) => t.cat === 'makan' && t.sub === 'Makan siang');
+  txs.forEach((t) => { t.sub = 'Makan'; });
+  if (txs.length) db.tx.bulkPut(txs).catch(fail);
+  for (const r of data.rules) if (r.cat === 'makan' && r.sub === 'Makan siang') { r.sub = 'Makan'; db.rules.put(r).catch(fail); }
+  for (const [w, v] of Object.entries(data.learned)) if (v.cat === 'makan' && v.sub === 'Makan siang') { v.sub = 'Makan'; db.learned.put({ word: w, ...v }).catch(fail); }
+  const put = (key: keyof Settings, value: unknown) => { (st as unknown as Record<string, unknown>)[key] = value; db.settings.put({ key, value }).catch(fail); };
+  put('catEdits', edits);
+  put('subMap', { 'makan|Makan siang': 'makan|Makan' });
+  put('kwOff', st.kwOff || []);
+  put('histFrom', Date.now());
 }
 
 /** Ask the browser not to evict our data (important on iPhone). */
@@ -231,6 +261,100 @@ export function forgetFixedKey(key: string): void {
 export function setCatEdits(edits: Settings['catEdits']): void {
   setSetting('catEdits', edits);
   applyCatEdits(edits);
+}
+
+/* ---------- subcategories ---------- */
+const subKey = (cat: string, sub: string) => cat + '|' + sub;
+/** How many transactions and schedules use a subcategory. */
+export function subUse(cat: string, sub: string): { tx: number; rules: number } {
+  return { tx: data.txs.filter((t) => t.cat === cat && t.sub === sub).length, rules: data.rules.filter((r) => r.cat === cat && r.sub === sub).length };
+}
+/** Write a category's subcategory list into the edits (dropping the entry when it equals the built-in list). */
+function putSubs(e: Record<string, CatEdit>, k: string, subs: string[]): void {
+  const base = BASE_CATS[k], x = { ...(e[k] || {}) };
+  if (base && subs.join('|') === base.subs.join('|')) delete x.subs; else x.subs = subs;
+  if (Object.keys(x).length) e[k] = x; else delete e[k];
+}
+function saveSubs(e: Record<string, CatEdit>, map: Record<string, string>): void {
+  data.settings.subMap = map;
+  db.settings.put({ key: 'subMap', value: map }).catch(fail);
+  setCatEdits(e);
+  applyDict(map, data.settings.kwOff);
+}
+/** Add a subcategory at the end of a category's list. */
+export function addSub(cat: string, name: string): void {
+  const e = { ...(data.settings.catEdits || {}) }, map = { ...(data.settings.subMap || {}) };
+  if (!CATS[cat] || CATS[cat].subs.includes(name)) return;
+  delete map[subKey(cat, name)]; // a name that was moved away earlier lives here again
+  putSubs(e, cat, [...CATS[cat].subs, name]);
+  saveSubs(e, map);
+}
+/**
+ * Move everything of one subcategory to another and remove the old one: its transactions, schedules and
+ * remembered words; built-in words follow it too. Covers rename (same category, new name, `at` keeps its place),
+ * move to another category, and merge into an existing subcategory. Returns the number of transactions moved.
+ */
+export function moveSub(fromCat: string, fromSub: string, toCat: string, toSub: string, at?: number): number {
+  if (!CATS[fromCat] || !CATS[toCat] || (fromCat === toCat && fromSub === toSub)) return 0;
+  const now = Date.now(), txs = data.txs.filter((t) => t.cat === fromCat && t.sub === fromSub);
+  const type = CATS[toCat].inc ? 'in' : 'out';
+  for (const t of txs) { t.cat = toCat; t.sub = toSub; if (t.type !== 'tf') t.type = type; t.updatedAt = now; }
+  if (txs.length) db.tx.bulkPut(txs).catch(fail);
+  for (const r of data.rules) if (r.cat === fromCat && r.sub === fromSub) { r.cat = toCat; r.sub = toSub; db.rules.put(r).catch(fail); }
+  for (const [w, v] of Object.entries(data.learned)) if (v.cat === fromCat && v.sub === fromSub) { v.cat = toCat; v.sub = toSub; db.learned.put({ word: w, ...v }).catch(fail); }
+  const e = { ...(data.settings.catEdits || {}) }, map = { ...(data.settings.subMap || {}) }, from = subKey(fromCat, fromSub), to = subKey(toCat, toSub);
+  for (const k of Object.keys(map)) if (map[k] === from) map[k] = to;
+  map[from] = to; delete map[to];
+  const src = CATS[fromCat].subs.filter((x) => x !== fromSub);
+  if (fromCat === toCat) {
+    if (!src.includes(toSub)) src.splice(at === undefined ? src.length : Math.min(at, src.length), 0, toSub);
+    putSubs(e, fromCat, src);
+  } else {
+    putSubs(e, fromCat, src.length ? src : ['Lainnya']);
+    if (!CATS[toCat].subs.includes(toSub)) putSubs(e, toCat, [...CATS[toCat].subs, toSub]);
+  }
+  saveSubs(e, map);
+  return txs.length;
+}
+/** Remove an unused subcategory (nothing points to it). Its built-in words fall back to the category's first one. */
+export function removeSub(cat: string, sub: string): void {
+  const e = { ...(data.settings.catEdits || {}) }, map = { ...(data.settings.subMap || {}) };
+  const rest = CATS[cat].subs.filter((x) => x !== sub);
+  if (!rest.length) return;
+  for (const [w, v] of Object.entries(data.learned)) if (v.cat === cat && v.sub === sub) unlearn(w);
+  map[subKey(cat, sub)] = subKey(cat, rest[0]);
+  putSubs(e, cat, rest);
+  saveSubs(e, map);
+}
+
+/* ---------- keywords of a subcategory ---------- */
+/** Who a word points to now: the user's own words first, then the built-in list. */
+export function wordOwner(word: string): { cat: string; sub: string; own: boolean } | null {
+  const l = data.learned[word]; if (l) return { ...l, own: true };
+  const d = DICT_NOW.find((x) => x.words.includes(word));
+  return d ? { cat: d.cat, sub: d.sub, own: false } : null;
+}
+/** Words of a subcategory: the user's own, and the built-in ones still pointing here. */
+export function subWords(cat: string, sub: string): { own: string[]; builtIn: string[] } {
+  const own = Object.keys(data.learned).filter((w) => data.learned[w].cat === cat && data.learned[w].sub === sub).sort();
+  const builtIn = DICT_NOW.filter((x) => x.cat === cat && x.sub === sub).flatMap((x) => x.words).filter((w) => !data.learned[w]);
+  return { own, builtIn: Array.from(new Set(builtIn)) };
+}
+/** Point a word at a subcategory. Returns where it pointed before, if somewhere else. */
+export function addWord(word: string, cat: string, sub: string): { cat: string; sub: string } | null {
+  const before = wordOwner(word);
+  const off = data.settings.kwOff || [];
+  if (off.includes(word)) { setSetting('kwOff', off.filter((w) => w !== word)); applyDict(data.settings.subMap, data.settings.kwOff); }
+  learn(word, cat, sub);
+  return before && (before.cat !== cat || before.sub !== sub) ? { cat: before.cat, sub: before.sub } : null;
+}
+/** Take a word away from a subcategory: forget the user's own word, or switch a built-in word off. */
+export function dropWord(word: string, cat: string, sub: string): void {
+  const l = data.learned[word];
+  if (l && l.cat === cat && l.sub === sub) { unlearn(word); return; }
+  const off = data.settings.kwOff || [];
+  if (!off.includes(word)) setSetting('kwOff', [...off, word]);
+  applyDict(data.settings.subMap, data.settings.kwOff);
 }
 
 /* ---------- backup ---------- */

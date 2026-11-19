@@ -1,6 +1,6 @@
 // Read bank statements (CSV / Excel rows or PDF text lines) into transactions, then guess categories.
 import { amountsIn, cellDate, findDate, parseAmount } from './money-text.ts';
-import { KW, KW_IN } from './model.ts';
+import { KW, KW_IN, kwBest } from './model.ts';
 import { walletSource, type WalletAlias } from './parser.ts';
 
 export interface StmtRow { date: string; desc: string; amount: number; type: 'in' | 'out'; balance: number | null }
@@ -210,10 +210,10 @@ export function guessRow(row: StmtRow, ctx: GuessCtx): Guess {
   }
   for (const w of t.match(/[a-z]+/g) || []) if (ctx.learned[w]) { const l = ctx.learned[w]; const inc = ['gaji', 'bonus', 'masuk_lain'].includes(l.cat); if (inc === (row.type === 'in')) return { type: row.type, cat: l.cat, sub: l.sub, to: null, note }; }
   if (row.type === 'in') {
-    for (const [re, c, s] of KW_IN) if (re.test(t)) return { type: 'in', cat: c, sub: s, to: null, note };
+    const b = kwBest(t, KW_IN); if (b) return { type: 'in', cat: b.cat, sub: b.sub, to: null, note };
     return { type: 'in', cat: 'masuk_lain', sub: 'Lainnya', to: null, note };
   }
   if (/\b(biaya adm|biaya administrasi|adm(in)? bulanan|admin|pajak|materai|bea|biaya kartu|iuran kartu|provisi)\b/.test(t)) return { type: 'out', cat: 'lain', sub: 'Biaya bank', to: null, note };
-  for (const [re, c, s] of KW) if (re.test(t)) return { type: 'out', cat: c, sub: s, to: null, note };
+  { const b = kwBest(t, KW); if (b) return { type: 'out', cat: b.cat, sub: b.sub, to: null, note }; }
   return { type: 'out', cat: 'lain', sub: 'Lainnya', to: null, note };
 }

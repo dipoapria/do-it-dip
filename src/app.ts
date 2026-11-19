@@ -5,7 +5,7 @@ import {
   createIcons, House, ChartPie, Wallet as WalletIcon, Settings as SettingsIcon, Plus, Sparkles, BookOpen, ChevronDown, Eye, EyeOff,
   ArrowDownLeft, ArrowUpRight, ArrowDown, ArrowRight, Keyboard, Utensils, Fuel, ShoppingBag, Zap, HeartPulse, GraduationCap,
   HandHeart, LayoutGrid, Briefcase, Gift, Coins, ArrowLeftRight, Landmark, Smartphone, Banknote, ChevronLeft, ChevronRight,
-  PiggyBank, TrendingUp, TrendingDown, ShieldCheck, X, Check, Calendar, Info, Brain, Delete, Copy, Trash2, Lock, Tags,
+  PiggyBank, TrendingUp, TrendingDown, ShieldCheck, X, Check, Calendar, Info, Brain, Settings2, Delete, Copy, Trash2, Lock, Tags,
   CloudUpload, Download, Upload, MonitorSmartphone, Sun, Moon, User, Laptop, Store, Users, Layers, Pointer, Pencil, Palette,
   Presentation, Minimize, Flame, Clapperboard, Camera, ImagePlus, FileSpreadsheet, ScanLine, Receipt, KeyRound, TriangleAlert, RotateCcw,
   ScanFace, PartyPopper, Play, Hourglass, CloudDownload, RefreshCw, LogOut, Mail, LogIn, Repeat, FileDown, SkipForward, CalendarClock,
@@ -23,7 +23,8 @@ import { productLabel, receiptTitle } from './names.ts';
 import { ALL_TYPES, ASSET_TYPES, buyTx, incomeTx, isInvWallet, parseDec, portfolio, position, sellTx, unitsLabel } from './invest.ts';
 import { extract, NeedPassword } from './filetext.ts';
 import { guessRow, linesToStatement, rowsToStatement } from './statement.ts';
-import { KW } from './model.ts';
+import { KW, kwBest } from './model.ts';
+import { buildHistory } from './smart.ts';
 import { initDesk, render as renderDesk, sync as syncDesk } from './desk.ts';
 import { gridHTML, monthSums, pickerHTML, sumsHTML } from './calview.ts';
 import { addDays, addMonths, BLN, BULAN, dayLabel, daysIn, digitsOnly, esc, fmtN, HARI, HARI_P, longDate, monthName, pad, pct, rp, shortTxt, toD, todayStr } from './format.ts';
@@ -36,7 +37,7 @@ const ICONS = {
   House, ChartPie, Wallet: WalletIcon, Settings: SettingsIcon, Plus, Sparkles, BookOpen, ChevronDown, Eye, EyeOff, ArrowDownLeft,
   ArrowUpRight, ArrowDown, ArrowRight, Keyboard, Utensils, Fuel, ShoppingBag, Zap, HeartPulse, GraduationCap, HandHeart, LayoutGrid,
   Briefcase, Gift, Coins, ArrowLeftRight, Landmark, Smartphone, Banknote, ChevronLeft, ChevronRight, PiggyBank, TrendingUp,
-  TrendingDown, ShieldCheck, X, Check, Calendar, Info, Brain, Delete, Copy, Trash2, Lock, Tags, CloudUpload, Download, Upload,
+  TrendingDown, ShieldCheck, X, Check, Calendar, Info, Brain, Settings2, Delete, Copy, Trash2, Lock, Tags, CloudUpload, Download, Upload,
   MonitorSmartphone, Sun, Moon, User, Laptop, Store, Users, Layers, Pointer, Pencil, Palette, Presentation, Minimize, Flame, Clapperboard,
   Camera, ImagePlus, FileSpreadsheet, ScanLine, Receipt, KeyRound, TriangleAlert, RotateCcw,
   ScanFace, PartyPopper, Play, Hourglass, CloudDownload, RefreshCw, LogOut, Mail, LogIn, Repeat, FileDown, SkipForward, CalendarClock,
@@ -88,7 +89,17 @@ function defaults() {
   const cash = (ws.find((w) => w.group === 'Tunai') || ws.find((w) => w.group === 'E-wallet') || ws[0] || GHOST('x')).id;
   return { bank, cash };
 }
-const ctx = () => ({ today: T(), learned: store.data.learned, wallets: WL().map((w) => ({ id: w.id, aliases: w.aliases?.length ? w.aliases : [w.name.toLowerCase()] })), defaults: defaults(), kw: BOOK_KW[BK()] || [] });
+const ctx = () => ({ today: T(), learned: store.data.learned, wallets: WL().map((w) => ({ id: w.id, aliases: w.aliases?.length ? w.aliases : [w.name.toLowerCase()] })), defaults: defaults(), kw: BOOK_KW[BK()] || [], hist: histMap() });
+/* derived from all transactions, rebuilt only when the data changed */
+let HC = null, HCrev = -1, UC = null, UCrev = -1;
+/** Words that keep ending up in one subcategory (only transactions saved since learning started). */
+function histMap() { if (HCrev !== store.rev()) { HC = buildHistory(store.data.txs, store.data.settings.histFrom); HCrev = store.rev(); } return HC; }
+function subCounts() { if (UCrev !== store.rev()) { UC = {}; for (const t of store.data.txs) if (t.cat && t.sub) UC[t.cat + '|' + t.sub] = (UC[t.cat + '|' + t.sub] || 0) + 1; UCrev = store.rev(); } return UC; }
+/** A category's subcategories, most used first (ties keep the list order). */
+function subsOrd(k) { const c = subCounts(); return CATS[k].subs.map((s, i) => ({ s, i, n: c[k + '|' + s] || 0 })).sort((a, b) => b.n - a.n || a.i - b.i).map((x) => x.s); }
+/** Chips after a subcategory row in every picker: add a subcategory here, or manage the category. */
+const subTools = (k, where, i = '') => `<button class="chip add" data-a="subNew" data-cat="${k}" data-w="${where}" data-i="${i}"><i data-lucide="plus"></i>Sub baru</button><button class="chip add" data-a="catManage" data-cat="${k}"><i data-lucide="settings-2"></i>Kelola</button>`;
+const subChip = (k, sb, on, attrs) => `<button class="chip ${on ? 'on' : ''}" ${attrs} data-lp="sub" data-cat="${k}" data-sub="${esc(sb)}">${esc(sb)}</button>`;
 function tfNote(p) {
   const to = W(p.to);
   if (p.note === 'Tarik tunai') return to.group === 'Tunai' ? 'Tarik tunai' : `Tarik ke ${to.name}`;
@@ -695,7 +706,7 @@ function rerenderMode() { const mb = $('modebody'); if (!mb) return; mb.classNam
 function afterModeRender() { document.querySelectorAll('#modebody .seg').forEach(placePill); if (S.mode === 'kalimat') { S.prevMarks = null; syncHL(); startType(); } }
 
 /* ---------- Struk: photo → on-device OCR → editable expense ---------- */
-const kwHit = (text) => { const t = ' ' + text.toLowerCase() + ' '; for (const w of t.match(/[a-z]+/g) || []) if (store.data.learned[w]) return store.data.learned[w]; for (const [re, c, s] of KW) if (re.test(t)) return { cat: c, sub: s }; return null; };
+const kwHit = (text) => { const t = ' ' + text.toLowerCase() + ' '; for (const w of t.match(/[a-z]+/g) || []) if (store.data.learned[w]) return store.data.learned[w]; const b = kwBest(t, KW); return b ? { cat: b.cat, sub: b.sub } : null; };
 /** Known chain decides first (Indomaret → Belanja); then the shop name; a long item list is a shopping trip; then the item names. */
 const receiptGuess = (res) => res.storeCat || kwHit(res.merchant) || (res.items.length >= 3 ? { cat: 'belanja', sub: 'Kebutuhan harian' } : kwHit(res.items.map((i) => i.name).join(' '))) || { cat: 'belanja', sub: 'Kebutuhan harian' };
 /** Note from the products: "Aqua Btl 600ml", "Aqua Btl 600ml, Roti Tawar", "Aqua Btl 600ml, Roti Tawar +3". */
@@ -739,8 +750,8 @@ function mStruk() {
   <span class="lab">Total dibayar</span><input class="field amt-field" id="stAmt" inputmode="numeric" value="${f.amount ? fmtN(f.amount) : ''}" placeholder="Rp0" autocomplete="off">
   <span class="lab">Catatan</span><input class="field" id="stNote" maxlength="60" value="${esc(f.note)}" autocomplete="off">
   <span class="lab">Tanggal${r.date ? '' : ' <em class="from-receipt warn">· tidak terbaca, diisi hari ini</em>'}</span><input class="field" type="date" id="stDate" value="${f.date}" max="${T()}">
-  <span class="lab">Kategori</span><div class="hscroll">${OUTC().map((k) => `<button class="chip cat ${f.cat === k ? 'on' : ''}" style="--c:${CATS[k].c}" data-a="stset" data-k="cat" data-v="${k}"><i data-lucide="${CATS[k].i}"></i>${CATS[k].n}</button>`).join('')}</div>
-  <div class="hscroll">${c.subs.map((x) => `<button class="chip ${f.sub === x ? 'on' : ''}" data-a="stset" data-k="sub" data-v="${esc(x)}">${esc(x)}</button>`).join('')}</div>
+  <span class="lab">Kategori</span><div class="hscroll">${OUTC().map((k) => `<button class="chip cat ${f.cat === k ? 'on' : ''}" style="--c:${CATS[k].c}" data-a="stset" data-k="cat" data-v="${k}" data-lp="cat" data-cat="${k}"><i data-lucide="${CATS[k].i}"></i>${CATS[k].n}</button>`).join('')}<button class="chip add" data-a="catNewCo" data-inc="0"><i data-lucide="plus"></i>Kategori baru</button></div>
+  <div class="hscroll">${subsOrd(f.cat).map((x) => subChip(f.cat, x, f.sub === x, `data-a="stset" data-k="sub" data-v="${esc(x)}"`)).join('')}${subTools(f.cat, 'st')}</div>
   <span class="lab">Dibayar pakai${r.pay ? ` <em class="from-receipt">· struk: ${PAY_LABEL[r.pay] || r.pay}</em>` : ''}</span><div class="hscroll">${wchips}</div>
   <details class="st-more"><summary>Teks mentah dari foto</summary><pre>${esc(r.lines.join('\n') || '(kosong)')}</pre></details>
   <button class="primary" data-a="saveStruk" ${f.amount ? '' : 'disabled'}><i data-lucide="check"></i>Simpan dari struk</button>
@@ -866,12 +877,12 @@ function pvHTML() {
     if (p.type === 'tf') chips = `${wchip(p.wallet)}<i data-lucide="arrow-right" style="align-self:center;color:var(--ink-3)"></i>${wchip(p.to)}`;
     else { const c = CATS[p.cat]; chips = `<button class="chip cat${pop('cat')} ${S.nlPick === i ? 'on' : ''}" style="--c:${c.c}" data-a="pvcat" data-i="${i}"><i data-lucide="${c.i}"></i>${c.n} · ${esc(p.sub)}<i data-lucide="chevron-down"></i></button>${wchip(p.wallet, true)}`; }
     chips += `<span class="chip${pop('date')}"><i data-lucide="calendar"></i>${dayLabel(p.date, T())}</span>`;
-    const pkCats = () => (p.type === 'in' ? INC().concat(OUTC()) : OUTC().concat(INC())).map((k, j) => `<button class="chip cat ${k === p.cat ? 'on' : ''}" style="--c:${CATS[k].c};--i:${j}" data-a="pvset" data-i="${i}" data-cat="${k}"><i data-lucide="${CATS[k].i}"></i>${esc(CATS[k].n)}</button>`).join('');
-    const pkSubs = (k) => `<button class="chip cat on" style="--c:${CATS[k].c};--i:0" data-a="pvback"><i data-lucide="chevron-left"></i>${esc(CATS[k].n)}</button>${CATS[k].subs.map((sb, j) => `<button class="chip" style="--i:${j + 1}" data-a="pvsub" data-i="${i}" data-s="${j}">${esc(sb)}</button>`).join('')}`;
+    const pkCats = () => (p.type === 'in' ? INC().concat(OUTC()) : OUTC().concat(INC())).map((k, j) => `<button class="chip cat ${k === p.cat ? 'on' : ''}" style="--c:${CATS[k].c};--i:${j}" data-a="pvset" data-i="${i}" data-cat="${k}" data-lp="cat"><i data-lucide="${CATS[k].i}"></i>${esc(CATS[k].n)}</button>`).join('') + `<button class="chip add" data-a="catNewCo" data-inc="${p.type === 'in' ? 1 : 0}"><i data-lucide="plus"></i>Kategori baru</button>`;
+    const pkSubs = (k) => `<button class="chip cat on" style="--c:${CATS[k].c};--i:0" data-a="pvback"><i data-lucide="chevron-left"></i>${esc(CATS[k].n)}</button>${subsOrd(k).map((sb, j) => subChip(k, sb, k === p.cat && sb === p.sub, `style="--i:${j + 1}" data-a="pvsub" data-i="${i}" data-v="${esc(sb)}"`)).join('')}${subTools(k, 'pv', i)}`;
     const pk = S.nlPick === i && p.type !== 'tf' ? `<div class="picker"><span class="pk-lab">${S.nlCat && CATS[S.nlCat] ? 'Pilih subkategori' : 'Pilih kategori'}</span>${S.nlCat && CATS[S.nlCat] ? pkSubs(S.nlCat) : pkCats()}</div>` : '';
     return `<div class="pv${prev ? '' : ' new'}"><div class="pv-top"><span class="type ${p.type}">${tl}</span><span class="pv-amt${p.amount ? '' : ' none'}${pop('amt')}">${p.amount ? (p.type === 'in' ? '+' : '') + rp(p.amount) : 'Nominal belum terbaca'}</span></div><div class="pv-note">${esc(p.note)}</div><div class="chips">${chips}</div>${pk}
       ${p.assumed ? `<div class="hint"><i data-lucide="info"></i>Angka tanpa satuan dibaca ribuan: ${rp(p.amount)}</div>` : ''}
-      ${p.learned ? `<div class="hint learned"><i data-lucide="brain"></i>Kategori diingat dari koreksi Anda</div>` : ''}</div>`;
+      ${p.learned ? `<div class="hint learned"><i data-lucide="brain"></i>Kategori diingat dari koreksi Anda</div>` : p.hist ? `<div class="hint learned"><i data-lucide="history"></i>Dari kebiasaan Anda: “${esc(p.hist.word)}” ${p.hist.n}× di ${esc(p.sub)}</div>` : ''}</div>`;
   }).join('')}</div>
   <button class="primary" data-a="saveNL" ${ok ? '' : 'disabled'}><i data-lucide="check"></i>Simpan ${ok > 1 ? ok + ' transaksi' : 'transaksi'}</button>`;
   S.lastSig = items.map(sigOf); return html;
@@ -886,8 +897,8 @@ function mManual() {
   return `<div class="seg" id="typeSeg" style="margin-bottom:10px"><span class="pill"></span>${[['out', 'Pengeluaran'], ['in', 'Pemasukan'], ['tf', 'Transfer']].map(([k, l]) => `<button class="${m.type === k ? 'on' : ''}" data-a="mset" data-k="type" data-v="${k}">${l}</button>`).join('')}</div>
   <div class="amount-disp"><small>Nominal</small><div class="ad ${amt ? '' : 'zero'}" id="mamt">${amtHTML()}</div></div>
   ${m.type === 'tf' ? `<span class="lab">Dari</span><div class="hscroll">${wchips('wallet', m.wallet)}</div><span class="lab">Ke</span><div class="hscroll">${wchips('to', m.to)}</div>` :
-  `<span class="lab">Kategori</span><div class="hscroll">${cats.map((k) => `<button class="chip cat ${m.cat === k ? 'on' : ''}" style="--c:${CATS[k].c}" data-a="mset" data-k="cat" data-v="${k}"><i data-lucide="${CATS[k].i}"></i>${CATS[k].n}</button>`).join('')}</div>
-  <div class="hscroll">${CATS[m.cat].subs.map((s) => `<button class="chip ${m.sub === s ? 'on' : ''}" data-a="mset" data-k="sub" data-v="${esc(s)}">${esc(s)}</button>`).join('')}</div>
+  `<span class="lab">Kategori</span><div class="hscroll">${cats.map((k) => `<button class="chip cat ${m.cat === k ? 'on' : ''}" style="--c:${CATS[k].c}" data-a="mset" data-k="cat" data-v="${k}" data-lp="cat" data-cat="${k}"><i data-lucide="${CATS[k].i}"></i>${CATS[k].n}</button>`).join('')}<button class="chip add" data-a="catNewCo" data-inc="${m.type === 'in' ? 1 : 0}"><i data-lucide="plus"></i>Kategori baru</button></div>
+  <div class="hscroll">${subsOrd(m.cat).map((s) => subChip(m.cat, s, m.sub === s, `data-a="mset" data-k="sub" data-v="${esc(s)}"`)).join('')}${subTools(m.cat, 'm')}</div>
   <span class="lab">Dompet</span><div class="hscroll">${wchips('wallet', m.wallet)}</div>`}
   <span class="lab">Tanggal</span><div class="hscroll">${quick.map(([d, l]) => `<button class="chip ${m.date === d ? 'on' : ''}" data-a="mset" data-k="date" data-v="${d}"><i data-lucide="calendar"></i>${l}</button>`).join('')}</div>
   <input class="field" type="date" id="mdate" value="${m.date}" max="${today}" aria-label="Tanggal transaksi">
@@ -1278,31 +1289,150 @@ function cfInner() {
   return `<span class="lab">Nama kategori</span><input class="field" id="cfName" maxlength="24" value="${esc(CF.n)}" placeholder="mis. Hobi, Hewan peliharaan" autocomplete="off">
     <span class="lab">Ikon & warna</span><div class="hscroll">${CAT_ICONS.map((i) => `<button class="chip ${CF.i === i ? 'on' : ''}" data-a="cfIcon" data-v="${i}" aria-label="${i}"><i data-lucide="${i}"></i></button>`).join('')}</div>
     <div class="swatches">${CAT_COLORS.map((c) => `<button class="${CF.c === c ? 'on' : ''}" style="--c:${c}" data-a="cfColor" data-v="${c}" aria-label="Warna ${c}"></button>`).join('')}</div>
-    <span class="lab">Subkategori</span>
-    <div class="kw" style="margin:0 0 10px">${CF.subs.map((s, j) => `<button data-a="cfSubDel" data-j="${j}" style="--c:${CF.c}" aria-label="Hapus ${esc(s)}">${esc(s)}<i data-lucide="x"></i></button>`).join('') || '<span class="about">Belum ada subkategori.</span>'}</div>
+    <span class="lab">Subkategori${CF.k ? ' <em class="lab-note">· urut paling sering dipakai, ketuk untuk mengatur</em>' : ''}</span>
+    ${CF.k ? `<div class="card sub-list">${subsOrd(CF.k).map((sb) => { const u = store.subUse(CF.k, sb), w = store.subWords(CF.k, sb); return `<button class="set-row" data-a="subOpen" data-cat="${CF.k}" data-sub="${esc(sb)}"><div class="t"><b>${esc(sb)}</b><small>${u.tx ? `${u.tx} transaksi` : 'Belum dipakai'} · ${w.own.length + w.builtIn.length} kata kunci</small></div><i data-lucide="chevron-right"></i></button>`; }).join('')}</div>`
+    : `<div class="kw" style="margin:0 0 10px">${CF.subs.map((s, j) => `<button data-a="cfSubDel" data-j="${j}" style="--c:${CF.c}" aria-label="Hapus ${esc(s)}">${esc(s)}<i data-lucide="x"></i></button>`).join('') || '<span class="about">Belum ada subkategori.</span>'}</div>`}
     <div class="sub-add"><input class="field" id="cfSub" maxlength="24" placeholder="Subkategori baru" autocomplete="off"><button class="btn2" data-a="cfSubAdd"><i data-lucide="plus"></i>Tambah</button></div>
     <button class="primary" data-a="cfSave"><i data-lucide="check"></i>${CF.k ? 'Simpan' : 'Buat kategori'}</button>
     ${CF.k && !fixed ? `<button class="btn2" data-a="cfHide" style="width:100%;margin-top:8px"><i data-lucide="${CF.hidden ? 'eye' : 'eye-off'}"></i>${CF.hidden ? 'Tampilkan lagi' : 'Sembunyikan kategori'}</button>` : ''}
-    ${base && catEdits()[CF.k] ? '<button class="btn2" data-a="cfReset" style="width:100%;margin-top:8px"><i data-lucide="rotate-ccw"></i>Kembalikan ke bawaan</button>' : ''}
+    ${base && ['n', 'c', 'i', 'hidden'].some((x) => catEdits()[CF.k]?.[x] !== undefined) ? '<button class="btn2" data-a="cfReset" style="width:100%;margin-top:8px"><i data-lucide="rotate-ccw"></i>Kembalikan nama, ikon & warna bawaan</button>' : ''}
     ${CF.k && !base ? '<button class="danger" data-a="cfDelete">Hapus kategori</button>' : ''}`;
 }
 function cfRead() { const n = $('cfName'); if (n) CF.n = n.value; }
 function cfDraw() { const b = $('cfBody'); if (!b) return; const sc = b.parentElement.scrollTop; b.innerHTML = cfInner(); icons(); b.parentElement.scrollTop = sc; }
-function sCatForm(k) {
+/** Where the category form was opened from: the settings list ('set') or a picker while recording ('co'). */
+let CAT_FROM = 'set';
+/** After a category change: back to the list, or back to the transaction being recorded. */
+function catDone() { if (CAT_FROM === 'co') { closeSheet(); afterCatChange(); } else { refresh(); sCats(); } }
+function afterCatChange() {
+  refresh();
+  if ($('composer') && !$('composer').hidden) { const sc = $('cobody')?.scrollTop; if (S.mode === 'kalimat') { refreshPreview(); syncHL(); } else rerenderMode(); if ($('cobody')) $('cobody').scrollTop = sc; }
+}
+function sCatForm(k, keep) {
   const c = k ? CATS[k] : null;
-  CF = c ? { k, n: c.n, c: c.c, i: c.i, subs: c.subs.slice(), hidden: !!c.hidden, inc: !!c.inc }
+  if (keep && CF && CF.k === k && c) CF.subs = c.subs.slice();
+  else CF = c ? { k, n: c.n, c: c.c, i: c.i, subs: c.subs.slice(), hidden: !!c.hidden, inc: !!c.inc }
     : { k: null, n: '', c: CAT_COLORS[Object.keys(CATS).length % CAT_COLORS.length], i: 'layout-grid', subs: [], hidden: false, inc: CM.inc };
-  openSheet(c ? 'Ubah kategori' : 'Kategori baru', `<div id="cfBody">${cfInner()}</div>`);
+  sheetKey = 'catform'; openSheet(c ? 'Ubah kategori' : 'Kategori baru', `<div id="cfBody">${cfInner()}</div>`);
   if (!c) later(350, () => $('cfName')?.focus());
 }
+const cleanName = (v) => v.trim().replace(/\s+/g, ' ').slice(0, 24);
 function cfAddSub() {
-  cfRead(); const v = $('cfSub').value.trim().replace(/\s+/g, ' ');
+  cfRead(); const v = cleanName($('cfSub').value);
   if (!v) return toast('Tulis nama subkategori dulu');
   if (CF.subs.some((s) => s.toLowerCase() === v.toLowerCase())) return toast('Subkategori itu sudah ada');
-  CF.subs.push(v); cfDraw(); $('cfSub')?.focus();
+  if (CF.k) { store.addSub(CF.k, v); CF.subs = CATS[CF.k].subs.slice(); afterCatChange(); toast(`Subkategori “${v}” ditambahkan`); } else CF.subs.push(v);
+  cfDraw(); $('cfSub')?.focus();
+}
+
+/* ---- one subcategory: name, keywords, move, merge, delete ---- */
+let SB = null;
+const normWord = (v) => v.toLowerCase().replace(/[^a-z0-9&\- ]/g, ' ').replace(/\s+/g, ' ').trim();
+const subName = (k, sb) => `${CATS[k].n} · ${sb}`;
+function sbInner() {
+  const { cat, sub } = SB, c = CATS[cat], u = store.subUse(cat, sub), w = store.subWords(cat, sub), only = c.subs.length < 2;
+  const hist = Object.entries(histMap()).filter(([, h]) => h.cat === cat && h.sub === sub).sort((a, b) => b[1].n - a[1].n);
+  const LIM = 24, bi = SB.all ? w.builtIn : w.builtIn.slice(0, LIM);
+  const others = c.subs.filter((x) => x !== sub);
+  const moveTo = (c.inc ? INC() : OUTC()).filter((k) => k !== cat);
+  return `<div class="sb-head"><span class="ic" style="--c:${c.c}"><i data-lucide="${c.i}"></i></span><div><small>${esc(c.n)}</small><b>${esc(sub)}</b><small>${u.tx ? `${u.tx} transaksi` : 'Belum ada transaksi'}${u.rules ? ` · ${u.rules} jadwal berulang` : ''}</small></div></div>
+    <span class="lab">Nama subkategori</span>
+    <div class="sub-add"><input class="field" id="sbName" maxlength="24" value="${esc(sub)}" autocomplete="off"><button class="btn2" data-a="sbRename"><i data-lucide="check"></i>Ganti</button></div>
+    <span class="lab">Kata kunci</span>
+    <p class="form-note" style="margin-top:-2px">Kalimat yang memuat kata ini otomatis masuk ke sini. Kata yang Anda tambahkan menang atas kata bawaan.</p>
+    <div class="kw sb-kw">${w.own.map((x) => `<button class="own" data-a="sbWordDel" data-w="${esc(x)}" style="--c:${c.c}" aria-label="Hapus kata ${esc(x)}">${esc(x)}<i data-lucide="x"></i></button>`).join('')}${bi.map((x) => `<button class="bi" data-a="sbWordDel" data-w="${esc(x)}" style="--c:${c.c}" aria-label="Hapus kata ${esc(x)}">${esc(x)}<i data-lucide="x"></i></button>`).join('')}${w.builtIn.length > LIM ? `<button class="more" data-a="sbAll" style="--c:${c.c}">${SB.all ? 'Ringkas' : `+${w.builtIn.length - LIM} lainnya`}</button>` : ''}${!w.own.length && !w.builtIn.length ? '<span class="about">Belum ada kata kunci.</span>' : ''}</div>
+    <div class="sub-add" style="margin-top:10px"><input class="field" id="sbWord" maxlength="40" placeholder="mis. pempek, mie celor" autocomplete="off" autocapitalize="none"><button class="btn2" data-a="sbWordAdd"><i data-lucide="plus"></i>Tambah</button></div>
+    ${hist.length ? `<p class="form-note sb-hist"><i data-lucide="history"></i>Dipelajari dari kebiasaan Anda: ${hist.slice(0, 12).map(([x, h]) => `<b>${esc(x)}</b> ${h.n}×`).join(', ')}</p>` : ''}
+    <span class="lab">Pindahkan ke kategori lain</span>
+    ${only ? '<p class="form-note">Ini satu-satunya subkategori di kategori ini, jadi tidak bisa dipindahkan.</p>' : `<div class="hscroll">${moveTo.map((k) => `<button class="chip cat" style="--c:${CATS[k].c}" data-a="sbMove" data-to="${k}"><i data-lucide="${CATS[k].i}"></i>${esc(CATS[k].n)}</button>`).join('')}</div>`}
+    <span class="lab">${u.tx || u.rules ? 'Gabungkan ke subkategori lain' : 'Hapus'}</span>
+    ${only ? '<p class="form-note">Kategori butuh minimal satu subkategori.</p>' : u.tx || u.rules ? `<p class="form-note" style="margin-top:-2px">Transaksi${u.rules ? ', jadwal berulang,' : ''} dan kata kuncinya pindah ke subkategori pilihan, lalu “${esc(sub)}” dihapus.</p><div class="hscroll">${others.map((x) => `<button class="chip" data-a="sbMerge" data-to="${esc(x)}"><i data-lucide="merge"></i>${esc(x)}</button>`).join('')}</div>` : '<button class="danger" data-a="sbDelete" style="margin-top:0">Hapus subkategori</button>'}
+    <button class="btn2 wide" data-a="sbBack" style="margin-top:14px"><i data-lucide="${SB.from === 'cat' ? 'chevron-left' : 'check'}"></i>${SB.from === 'cat' ? `Kembali ke ${esc(c.n)}` : 'Selesai'}</button>`;
+}
+function sSub(cat, sub, from) {
+  if (!CATS[cat] || !CATS[cat].subs.includes(sub)) return;
+  SB = { cat, sub, from: from || SB?.from || 'co', all: false };
+  sheetKey = 'sub'; openSheet('Atur subkategori', `<div id="sbBody">${sbInner()}</div>`);
+}
+function sbDraw() { const b = $('sbBody'); if (!b || !CATS[SB.cat]?.subs.includes(SB.sub)) return; const sc = b.parentElement.scrollTop; b.innerHTML = sbInner(); icons(); b.parentElement.scrollTop = sc; }
+function sbAfter(msg) { afterCatChange(); if (msg) toast(msg); }
+function sbRename() {
+  const v = cleanName($('sbName')?.value || ''), { cat, sub } = SB;
+  if (!v) return toast('Nama tidak boleh kosong');
+  if (v === sub) return toast('Namanya masih sama');
+  const clash = CATS[cat].subs.find((x) => x !== sub && x.toLowerCase() === v.toLowerCase());
+  const go = (to) => { const n = store.moveSub(cat, sub, cat, to, CATS[cat].subs.indexOf(sub)); SB.sub = to; sSub(cat, to); sbAfter(clash ? `Digabung ke “${to}”${n ? ` · ${n} transaksi` : ''}` : `Diganti jadi “${to}”${n ? ` · ${n} transaksi ikut` : ''}`); };
+  if (clash) return sConfirm('Gabungkan subkategori?', `“${esc(clash)}” sudah ada di ${esc(CATS[cat].n)}. Semua transaksi dan kata kunci “${esc(sub)}” akan masuk ke “${esc(clash)}”.`, 'Gabungkan', () => go(clash));
+  go(v);
+}
+function sbWordAdd() {
+  const raw = $('sbWord')?.value || '', words = raw.split(',').map(normWord).filter((x) => x.length >= 2);
+  if (!words.length) return toast('Tulis kata kuncinya dulu');
+  const moved = [];
+  for (const x of words) { const was = store.addWord(x, SB.cat, SB.sub); if (was) moved.push(`“${x}” dipindah dari ${subName(was.cat, was.sub)}`); }
+  sbDraw(); $('sbWord')?.focus(); syncHL(); refreshPreview();
+  toast(moved.length ? moved.join(' · ') : words.length > 1 ? `${words.length} kata kunci ditambahkan` : `“${words[0]}” ditambahkan`);
+}
+function sbMove(to) {
+  const { cat, sub } = SB, clash = CATS[to].subs.includes(sub);
+  sConfirm(`Pindahkan ke ${CATS[to].n}?`, `“${esc(sub)}” beserta transaksi, jadwal berulang, dan kata kuncinya pindah ke <b>${esc(CATS[to].n)}</b>.${clash ? ` Di sana sudah ada “${esc(sub)}”, jadi keduanya digabung.` : ''}`, 'Pindahkan', () => {
+    const n = store.moveSub(cat, sub, to, sub); SB.cat = to;
+    sSub(to, sub);
+    sbAfter(`Dipindah ke ${CATS[to].n}${n ? ` · ${n} transaksi` : ''}`);
+  });
+}
+function sbMerge(to) {
+  const { cat, sub } = SB, u = store.subUse(cat, sub);
+  sConfirm(`Gabungkan ke “${to}”?`, `${u.tx} transaksi${u.rules ? `, ${u.rules} jadwal berulang,` : ''} dan kata kunci “${esc(sub)}” pindah ke “${esc(to)}”, lalu “${esc(sub)}” dihapus.`, 'Gabungkan', () => {
+    store.moveSub(cat, sub, cat, to); sSub(cat, to); sbAfter(`Digabung ke “${to}”`);
+  });
+}
+function sbDelete() {
+  const { cat, sub } = SB;
+  sConfirm('Hapus subkategori?', `“${esc(sub)}” belum dipakai transaksi mana pun. Kata kuncinya ikut ke “${esc(CATS[cat].subs.find((x) => x !== sub))}”.`, 'Hapus', () => {
+    store.removeSub(cat, sub);
+    if (SB.from === 'cat') sCatForm(cat, true); else closeSheet();
+    sbAfter(`“${sub}” dihapus`);
+  });
+}
+
+/* ---- "+ Sub baru" from a picker: add it and use it for the transaction being recorded ---- */
+let SN = null;
+function sSubNew(cat, where, i) {
+  SN = { cat, where, i: Number(i) };
+  sheetKey = 'subnew'; openSheet('Subkategori baru', `<p class="confirm-text" style="margin-top:0">Di kategori <b>${esc(CATS[cat].n)}</b>. Langsung dipakai untuk transaksi ini.</p>
+    <span class="lab">Nama</span><input class="field" id="snName" maxlength="24" placeholder="mis. Sarapan, Skincare, Servis AC" autocomplete="off">
+    <span class="lab">Kata kunci (opsional)</span><input class="field" id="snWords" maxlength="80" placeholder="pisahkan dengan koma: bubur, lontong" autocomplete="off" autocapitalize="none">
+    <button class="primary" data-a="subNewSave"><i data-lucide="check"></i>Tambah & pakai</button>`);
+  later(350, () => $('snName')?.focus());
+}
+function subNewSave() {
+  const { cat, where, i } = SN, v = cleanName($('snName')?.value || '');
+  if (!v) return toast('Tulis nama subkategori dulu');
+  const sub = CATS[cat].subs.find((x) => x.toLowerCase() === v.toLowerCase()) || v;
+  if (!CATS[cat].subs.includes(sub)) store.addSub(cat, sub);
+  for (const x of ($('snWords')?.value || '').split(',').map(normWord).filter((w) => w.length >= 2)) store.addWord(x, cat, sub);
+  closeSheet();
+  if (where === 'pv') { S.nlCat = null; pvApply(i, cat, sub); }
+  else if (where === 'm') { S.m.cat = cat; S.m.sub = sub; }
+  else if (where === 'st' && S.struk?.form) { S.struk.form.cat = cat; S.struk.form.sub = sub; refreshNote(S.struk.form); }
+  afterCatChange(); if (where !== 'pv') toast(`“${sub}” ditambahkan dan dipakai`);
+}
+/** Use a category for one line of the sentence box and remember its words for next time. */
+function pvApply(i, cat, sub) {
+  const p = nlItems()[i]; if (!p || !cat || !sub) return;
+  S.nlOv[i] = { ...(S.nlOv[i] || {}), raw: p.raw, cat, sub }; S.nlPick = null; S.nlCat = null;
+  const key = learnKey(p.note);
+  if (key) {
+    // a phrase replaces what was remembered for its single words ("sewa" alone was too broad)
+    if (key.includes(' ')) for (const w of key.split(' ')) if (store.data.learned[w]) store.unlearn(w);
+    store.learn(key, cat, sub); toast(`Diingat: “${key}” → ${CATS[cat].n} · ${sub}`);
+  }
+  refreshPreview(); syncHL();
 }
 function cfSave() {
-  cfRead(); const pend = $('cfSub')?.value.trim(); if (pend && !CF.subs.some((s) => s.toLowerCase() === pend.toLowerCase())) CF.subs.push(pend);
+  cfRead(); const pend = cleanName($('cfSub')?.value || ''); if (pend && !CF.subs.some((s) => s.toLowerCase() === pend.toLowerCase())) { if (CF.k) store.addSub(CF.k, pend); else CF.subs.push(pend); }
+  if (CF.k && CATS[CF.k]) CF.subs = CATS[CF.k].subs.slice();
   const n = CF.n.trim().replace(/\s+/g, ' ');
   if (!n) return toast('Isi nama kategori dulu');
   if (Object.keys(CATS).some((k) => k !== CF.k && CATS[k].n.toLowerCase() === n.toLowerCase())) return toast('Nama kategori itu sudah dipakai');
@@ -1315,7 +1445,12 @@ function cfSave() {
     if (CF.hidden) x.hidden = true;
     if (Object.keys(x).length) e[CF.k] = x; else delete e[CF.k];
   } else e[CF.k || 'c-' + Date.now().toString(36)] = { custom: true, n, c: CF.c, i: CF.i, subs: CF.subs.slice(), ...(CF.inc ? { inc: true } : {}), ...(CF.hidden ? { hidden: true } : {}) };
-  store.setCatEdits(e); refresh(); sCats(); toast(CF.k ? 'Kategori disimpan' : `Kategori “${n}” dibuat`);
+  const made = CF.k ? null : Object.keys(e).find((k) => !CATS[k]);
+  store.setCatEdits(e); catDone(); toast(CF.k ? 'Kategori disimpan' : `Kategori “${n}” dibuat`);
+  // a category made while recording is used right away
+  if (made && CAT_FROM === 'co') { const sub = CATS[made].subs[0];
+    if (S.mode === 'manual') { S.m.cat = made; S.m.sub = sub; } else if (S.mode === 'struk' && S.struk?.form) { S.struk.form.cat = made; S.struk.form.sub = sub; } else if (S.nlPick !== null) { pvApply(S.nlPick, made, sub); }
+    afterCatChange(); }
 }
 
 /* ---- goal sheets ---- */
@@ -1808,6 +1943,10 @@ function bindEvents() {
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') { if ($('layer').innerHTML) closeSheet(); else if (!$('composer').hidden) closeComposer(); else if (!$('drill').hidden) closeDrill(); return; }
     if (e.key === 'Enter' && e.target.id === 'cfSub') { e.preventDefault(); cfAddSub(); return; }
+    if (e.key === 'Enter' && e.target.id === 'sbName') { e.preventDefault(); sbRename(); return; }
+    if (e.key === 'Enter' && e.target.id === 'sbWord') { e.preventDefault(); sbWordAdd(); return; }
+    if (e.key === 'Enter' && e.target.id === 'snName') { e.preventDefault(); $('snWords')?.focus(); return; }
+    if (e.key === 'Enter' && e.target.id === 'snWords') { e.preventDefault(); subNewSave(); return; }
     if (e.key === 'Enter' && e.target.id === 'pwNew') { e.preventDefault(); $('pwNew2')?.focus(); return; }
     if (e.key === 'Enter' && e.target.id === 'pwNew2') { e.preventDefault(); savePassword(); return; }
     if (e.key === 'Enter' && e.target.id === 'renameIn') { e.preventDefault(); onClick({ target: document.querySelector('[data-a="renameSave"]') }); return; }
@@ -1818,7 +1957,21 @@ function bindEvents() {
   document.addEventListener('touchstart', (e) => { const t = e.target.closest('.tx[data-id]'); if (t && !e.target.closest('#layer')) startLongPress(t); }, { passive: true });
   document.addEventListener('mousedown', (e) => { if (e.sourceCapabilities && e.sourceCapabilities.firesTouchEvents) return; const t = e.target.closest('.tx[data-id]'); if (t && e.button === 0 && !e.target.closest('#layer')) startLongPress(t); });
   ['touchend', 'touchcancel', 'mouseup'].forEach((ev) => document.addEventListener(ev, () => { if (lpT) cancelLongPress(); }));
-  document.addEventListener('contextmenu', (e) => { if (e.target.closest('.tx[data-id]')) e.preventDefault(); });
+  document.addEventListener('contextmenu', (e) => { if (e.target.closest('.tx[data-id]') || e.target.closest('[data-lp]')) e.preventDefault(); });
+  // hold a category or subcategory chip in a picker to manage it
+  let chipT = null, chipXY = null;
+  document.addEventListener('pointerdown', (e) => {
+    const c = e.target.closest && e.target.closest('[data-lp]'); if (!c || (e.pointerType === 'mouse' && e.button !== 0)) return;
+    chipXY = [e.clientX, e.clientY]; clearTimeout(chipT);
+    chipT = setTimeout(() => {
+      chipT = null; S.justDragged = true; setTimeout(() => (S.justDragged = false), 600); // the release must not also tap the chip
+      try { navigator.vibrate?.(12); } catch { /* not supported */ }
+      CAT_FROM = 'co';
+      if (c.dataset.lp === 'sub') sSub(c.dataset.cat, c.dataset.sub, 'co'); else sCatForm(c.dataset.cat);
+    }, 480);
+  });
+  document.addEventListener('pointermove', (e) => { if (chipT && chipXY && Math.hypot(e.clientX - chipXY[0], e.clientY - chipXY[1]) > 8) { clearTimeout(chipT); chipT = null; } });
+  ['pointerup', 'pointercancel'].forEach((ev) => document.addEventListener(ev, () => { clearTimeout(chipT); chipT = null; }));
   window.addEventListener('resize', () => { tabCenters = []; moveInd(S.pos); placePill($('themeSeg')); });
   window.addEventListener('dip-error', (e) => toast(e.detail));
   // A new day may have started while the app sat in the background.
@@ -1929,31 +2082,37 @@ function onClick(e) {
     case 'pvcat': S.nlPick = S.nlPick === Number(d.i) ? null : Number(d.i); S.nlCat = null; refreshPreview(); break;
     case 'pvback': S.nlCat = null; refreshPreview(); break;
     case 'pvset': case 'pvsub': {
-      const i = Number(d.i), p = nlItems()[i]; if (!p) break;
+      const i = Number(d.i);
       // first tap picks the category, second its subcategory (skipped when there is only one)
       if (a === 'pvset' && CATS[d.cat].subs.length > 1) { S.nlCat = d.cat; refreshPreview(); break; }
-      const cat = a === 'pvset' ? d.cat : S.nlCat, sub = CATS[cat].subs[a === 'pvset' ? 0 : Number(d.s)];
-      S.nlOv[i] = { ...(S.nlOv[i] || {}), raw: p.raw, cat, sub }; S.nlPick = null; S.nlCat = null;
-      const key = learnKey(p.note);
-      if (key) {
-        // a phrase replaces what was remembered for its single words ("sewa" alone was too broad)
-        if (key.includes(' ')) for (const w of key.split(' ')) if (store.data.learned[w]) store.unlearn(w);
-        store.learn(key, cat, sub); toast(`Diingat: “${key}” → ${CATS[cat].n} · ${sub}`);
-      }
-      refreshPreview(); syncHL(); break;
+      pvApply(i, a === 'pvset' ? d.cat : S.nlCat, a === 'pvset' ? subsOrd(d.cat)[0] : d.v); break;
     }
+    /* subcategory tools (pickers, manager) */
+    case 'subNew': sSubNew(d.cat, d.w, d.i); break;
+    case 'subNewSave': subNewSave(); break;
+    case 'catManage': CAT_FROM = 'co'; sCatForm(d.cat); break;
+    case 'catNewCo': CAT_FROM = 'co'; CM.inc = d.inc === '1'; sCatForm(null); break;
+    case 'subOpen': sSub(d.cat, d.sub, 'cat'); break;
+    case 'sbBack': if (SB.from === 'cat') sCatForm(SB.cat, true); else closeSheet(); break;
+    case 'sbRename': sbRename(); break;
+    case 'sbWordAdd': sbWordAdd(); break;
+    case 'sbWordDel': store.dropWord(d.w, SB.cat, SB.sub); sbDraw(); syncHL(); refreshPreview(); break;
+    case 'sbAll': SB.all = !SB.all; sbDraw(); break;
+    case 'sbMove': sbMove(d.to); break;
+    case 'sbMerge': sbMerge(d.to); break;
+    case 'sbDelete': sbDelete(); break;
     /* categories */
-    case 'catsOpen': sCats(); break;
+    case 'catsOpen': CAT_FROM = 'set'; sCats(); break;
     case 'catTab': CM.inc = d.v === '1'; sCats(); break;
-    case 'catEdit': sCatForm(d.k); break;
-    case 'catNew': sCatForm(null); break;
+    case 'catEdit': CAT_FROM = 'set'; sCatForm(d.k); break;
+    case 'catNew': CAT_FROM = 'set'; sCatForm(null); break;
     case 'cfIcon': cfRead(); CF.i = d.v; cfDraw(); break;
     case 'cfColor': cfRead(); CF.c = d.v; cfDraw(); break;
     case 'cfSubDel': cfRead(); CF.subs.splice(Number(d.j), 1); cfDraw(); break;
     case 'cfSubAdd': cfAddSub(); break;
     case 'cfHide': cfRead(); CF.hidden = !CF.hidden; cfSave(); break;
     case 'cfSave': cfSave(); break;
-    case 'cfReset': { const e = { ...catEdits() }; delete e[CF.k]; store.setCatEdits(e); refresh(); sCats(); toast('Dikembalikan ke bawaan'); break; }
+    case 'cfReset': { const e = { ...catEdits() }, x = e[CF.k] || {}; if (x.subs) e[CF.k] = { subs: x.subs }; else delete e[CF.k]; store.setCatEdits(e); catDone(); toast('Dikembalikan ke bawaan'); break; }
     case 'cfDelete': {
       const k = CF.k, used = catUse(k);
       if (used) { toast(`Masih dipakai ${used} transaksi. Sembunyikan saja agar catatannya tetap utuh.`); break; }
@@ -1976,9 +2135,9 @@ function onClick(e) {
     /* manual */
     case 'mset': {
       const m = S.m; m[d.k] = d.v; m.justTyped = false;
-      if (d.k === 'type' && d.v !== 'tf') { m.cat = d.v === 'in' ? INC()[0] : OUTC()[0]; m.sub = CATS[m.cat].subs[0]; if (d.v === 'in') m.wallet = defaults().bank; }
+      if (d.k === 'type' && d.v !== 'tf') { m.cat = d.v === 'in' ? INC()[0] : OUTC()[0]; m.sub = subsOrd(m.cat)[0]; if (d.v === 'in') m.wallet = defaults().bank; }
       if (d.k === 'type' && d.v === 'tf' && m.wallet === m.to) m.to = WL().find((w) => w.id !== m.wallet)?.id || m.to;
-      if (d.k === 'cat') m.sub = CATS[d.v].subs[0];
+      if (d.k === 'cat') m.sub = subsOrd(d.v)[0];
       const sc = $('cobody').scrollTop; rerenderMode(); $('cobody').scrollTop = sc; break;
     }
     case 'key': {
@@ -2034,7 +2193,7 @@ function onClick(e) {
     case 'lockAfter': store.setSetting('lockAfter', Number(d.v)); document.querySelectorAll('#lockSeg button').forEach((b) => b.classList.toggle('on', b.dataset.v === d.v)); placePill($('lockSeg')); break;
     /* struk */
     case 'stRetry': S.struk = { phase: 'idle' }; rerenderMode(); break;
-    case 'stset': { const f = S.struk.form; f[d.k] = d.v; if (d.k === 'cat') { f.sub = CATS[d.v].subs[0]; refreshNote(f); } const sc = $('cobody').scrollTop; rerenderMode(); $('cobody').scrollTop = sc; break; }
+    case 'stset': { const f = S.struk.form; f[d.k] = d.v; if (d.k === 'cat') { f.sub = subsOrd(d.v)[0]; refreshNote(f); } const sc = $('cobody').scrollTop; rerenderMode(); $('cobody').scrollTop = sc; break; }
     case 'stiDel': { const f = S.struk.form; f.items.splice(Number(d.i), 1); refreshNote(f); const sc = $('cobody').scrollTop; rerenderMode(); $('cobody').scrollTop = sc; break; }
     case 'stiAdd': { S.struk.form.items.push({ name: '', amount: 0 }); const sc = $('cobody').scrollTop; rerenderMode(); $('cobody').scrollTop = sc; later(60, () => $('sti-n-' + (S.struk.form.items.length - 1))?.focus()); break; }
     case 'saveStruk': {

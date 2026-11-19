@@ -354,7 +354,7 @@ export const STORES: [RegExp, string, string, string][] = [
   [/kimia\s*farma|apotek|k-?24|century/i, 'Apotek', 'kesehatan', 'Obat'],
   [/pertamina|spbu|shell|vivo energy|bp akr/i, 'SPBU', 'transport', 'Bensin'],
   [/starbucks|kopi kenangan|janji jiwa|fore coffee|tomoro|point coffee/i, 'Kedai kopi', 'makan', 'Kopi & minuman'],
-  [/\bkfc\b|mc\s?donald|richeese|burger king|hokben|solaria|pizza hut/i, 'Restoran', 'makan', 'Makan siang'],
+  [/\bkfc\b|mc\s?donald|richeese|burger king|hokben|solaria|pizza hut/i, 'Restoran', 'makan', 'Makan'],
   [/gramedia/i, 'Gramedia', 'pendidikan', 'Buku'],
 ];
 const PAY: [RegExp, string][] = [
