@@ -5,7 +5,7 @@ import { addDays } from './format.ts';
 import { STORES, type Confidence, type ReceiptResult } from './receipt.ts';
 
 export interface AiReceipt {
-  items?: { name?: string; printed?: string; qty?: number | null; price?: number }[];
+  items?: { name?: string; printed?: string; qty?: number | null; unit?: number | null; price?: number }[];
   discount?: number | null; fees?: number | null; total?: number | null;
   date?: string | null; payment?: string | null; store?: string | null;
 }
@@ -22,7 +22,12 @@ export function fromAi(a: AiReceipt, today: string, model = ''): ReceiptResult &
       const q = typeof it.qty === 'number' && it.qty > 0 ? it.qty : undefined;
       // whole pieces above 1, or a weight in kg (not a whole number)
       const qty = q && ((Number.isInteger(q) && q > 1) || !Number.isInteger(q)) ? q : undefined;
-      return { name, amount: Math.round(Number(it.price) || 0), qty, printed: String(it.printed ?? '').trim() };
+      let amount = Math.round(Number(it.price) || 0);
+      const u = Math.round(Number(it.unit) || 0);
+      // the line total, also when only "5 x 3.500" came back as the price of one piece
+      if (qty && Number.isInteger(qty) && u > 0 && amount === u) amount = u * qty;
+      const unit = qty && Number.isInteger(qty) ? (u > 0 && Math.abs(u * qty - amount) <= Math.max(2, amount * 0.02) ? u : Math.round(amount / qty)) : undefined;
+      return { name, amount, qty, ...(unit ? { unit } : {}), printed: String(it.printed ?? '').trim() };
     })
     .filter((it) => it.name && it.amount > 0)
     .map(({ printed, ...it }) => (printed && printed !== it.name ? { ...it, printed } : it))

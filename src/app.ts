@@ -5,7 +5,7 @@ import {
   createIcons, House, ChartPie, Wallet as WalletIcon, Settings as SettingsIcon, Plus, Sparkles, BookOpen, ChevronDown, Eye, EyeOff,
   ArrowDownLeft, ArrowUpRight, ArrowDown, ArrowRight, Keyboard, Utensils, Fuel, ShoppingBag, Zap, HeartPulse, GraduationCap,
   HandHeart, LayoutGrid, Briefcase, Gift, Coins, ArrowLeftRight, Landmark, Smartphone, Banknote, ChevronLeft, ChevronRight,
-  PiggyBank, TrendingUp, TrendingDown, ShieldCheck, X, Check, Calendar, Info, Brain, Settings2, Pin, Scale, CheckCheck, Search, History, Merge, Percent, Delete, Copy, Trash2, Lock, Tags,
+  PiggyBank, TrendingUp, TrendingDown, ShieldCheck, X, Check, Calendar, Info, Brain, Settings2, Pin, Scale, CheckCheck, Search, History, Merge, Percent, Send, Minus, UserPlus, Inbox, Delete, Copy, Trash2, Lock, Tags,
   CloudUpload, Download, Upload, MonitorSmartphone, Sun, Moon, User, Laptop, Store, Users, Layers, Pointer, Pencil, Palette,
   Presentation, Minimize, Flame, Clapperboard, Camera, ImagePlus, FileSpreadsheet, ScanLine, Receipt, KeyRound, TriangleAlert, RotateCcw,
   ScanFace, PartyPopper, Play, Hourglass, CloudDownload, RefreshCw, LogOut, Mail, LogIn, Repeat, FileDown, SkipForward, CalendarClock,
@@ -27,6 +27,7 @@ import { KW, kwBest } from './model.ts';
 import { buildHistory } from './smart.ts';
 import { feeSummary, foldFees } from './fees.ts';
 import { checkWeek, logByMonth, movedSince, reconDue, streak } from './recon.ts';
+import { lineShare, splitBill, unitPrice } from './split.ts';
 import { initDesk, render as renderDesk, sync as syncDesk } from './desk.ts';
 import { gridHTML, monthSums, pickerHTML, sumsHTML } from './calview.ts';
 import { addDays, addMonths, BLN, BULAN, dayLabel, daysIn, digitsOnly, esc, fmtN, HARI, HARI_P, longDate, monthName, pad, pct, rp, shortTxt, toD, todayStr } from './format.ts';
@@ -39,7 +40,7 @@ const ICONS = {
   House, ChartPie, Wallet: WalletIcon, Settings: SettingsIcon, Plus, Sparkles, BookOpen, ChevronDown, Eye, EyeOff, ArrowDownLeft,
   ArrowUpRight, ArrowDown, ArrowRight, Keyboard, Utensils, Fuel, ShoppingBag, Zap, HeartPulse, GraduationCap, HandHeart, LayoutGrid,
   Briefcase, Gift, Coins, ArrowLeftRight, Landmark, Smartphone, Banknote, ChevronLeft, ChevronRight, PiggyBank, TrendingUp,
-  TrendingDown, ShieldCheck, X, Check, Calendar, Info, Brain, Settings2, Pin, Scale, CheckCheck, Search, History, Merge, Percent, Delete, Copy, Trash2, Lock, Tags, CloudUpload, Download, Upload,
+  TrendingDown, ShieldCheck, X, Check, Calendar, Info, Brain, Settings2, Pin, Scale, CheckCheck, Search, History, Merge, Percent, Send, Minus, UserPlus, Inbox, Delete, Copy, Trash2, Lock, Tags, CloudUpload, Download, Upload,
   MonitorSmartphone, Sun, Moon, User, Laptop, Store, Users, Layers, Pointer, Pencil, Palette, Presentation, Minimize, Flame, Clapperboard,
   Camera, ImagePlus, FileSpreadsheet, ScanLine, Receipt, KeyRound, TriangleAlert, RotateCcw,
   ScanFace, PartyPopper, Play, Hourglass, CloudDownload, RefreshCw, LogOut, Mail, LogIn, Repeat, FileDown, SkipForward, CalendarClock,
@@ -150,7 +151,7 @@ function countUp(el) {
 function txRow(t) {
   const c = catOf(t), w = W(t.wallet), sign = t.type === 'in' ? '+' : t.type === 'out' ? '−' : '';
   const fee = t.type === 'tf' ? feeMap()[t.id] : null;
-  const meta = t.type === 'tf' ? `${esc(w.name)} → ${esc(W(t.to).name)}${fee ? ` <span class="fee-tag">+ admin ${money(fee.amount)}</span>` : ''}` : `${esc(t.sub)} · ${esc(w.name)}`;
+  const meta = t.type === 'tf' ? `${esc(w.name)} → ${esc(W(t.to).name)}${fee ? ` <span class="fee-tag">+ admin ${money(fee.amount)}</span>` : ''}` : `${esc(t.sub)} · ${esc(w.name)}${t.split ? ` <span class="fee-tag">· bagi ${t.split.n}</span>` : ''}${t.from ? ` <span class="fee-tag">· dari ${esc(t.from)}</span>` : ''}`;
   return `<button class="tx${t.fresh ? ' fresh' : ''}" data-a="tx" data-id="${t.id}"><span class="ic" style="--c:${c.c}"><i data-lucide="${c.i}"></i></span><span class="tx-main"><b>${t.fixed ? '<i data-lucide="lock" class="fx-ic" aria-label="Pengeluaran tetap"></i>' : ''}${esc(t.note)}</b><small>${t.rec ? '<i data-lucide="repeat" class="rec-ic"></i>' : ''}${meta}</small></span><span class="amt ${t.type}">${sign}${money(t.amount)}</span></button>`;
 }
 function grouped(list) {
@@ -173,7 +174,7 @@ function vHome() {
   return `<div class="inner">
   <header class="top st" style="--i:0">
     <div class="logo"><img class="app-logo" src="./icons/logo-152.png" alt="Do it Dip" width="48" height="48"><div style="min-width:0"><div class="subt">${greet},</div><div class="hello">${esc(store.data.settings.name || 'kamu')}</div></div></div>
-    <button class="pillbtn" data-a="books" style="--c:${BOOKS[BK()].c}"><i data-lucide="${BOOKS[BK()].i}"></i>${BOOKS[BK()].n}<i data-lucide="chevron-down"></i></button>
+    <span id="inboxSlot">${inboxBtnHTML()}</span><button class="pillbtn" data-a="books" style="--c:${BOOKS[BK()].c}"><i data-lucide="${BOOKS[BK()].i}"></i>${BOOKS[BK()].n}<i data-lucide="chevron-down"></i></button>
   </header>
   <section class="hero t-${tod} book-${BK()} st" style="--i:1" id="hero"><div class="glare"></div>
     <div class="hero-row"><span class="lbl">${isPersonal() ? `Total saldo · ${WL().length} dompet` : `${st.inc - st.out < 0 ? 'Rugi' : 'Laba bersih'} ${mon} · buku ${BOOKS[BK()].n}`}</span><button class="eye" data-a="hide" aria-label="Sembunyikan atau tampilkan nominal"><i data-lucide="${app().classList.contains('hid') ? 'eye-off' : 'eye'}"></i></button></div>
@@ -507,6 +508,7 @@ function vLainnya() {
     <button class="set-row" data-a="rename"><span class="ic" style="--c:#13A894"><i data-lucide="user"></i></span><div class="t"><b>${esc(set.name || 'Tanpa nama')}</b><small>Nama sapaan di Beranda · ketuk untuk mengubah</small></div><i data-lucide="chevron-right"></i></button></div>
   ${rulesCardHTML()}
   ${cloudCardHTML()}
+  <div class="card pt-card" id="ptCard">${ptInner()}</div>
   <div class="card"><h4>Cadangan manual <span class="status">${S.persisted ? 'Penyimpanan permanen aktif' : 'Di perangkat ini'}</span></h4>
     <p class="about" style="margin:0 0 4px">File cadangan (.json) bisa disimpan di Files atau Google Drive dan dipulihkan di perangkat mana pun.</p>
     <div class="btn-row"><button class="btn2" data-a="backup"><i data-lucide="download"></i>Ekspor cadangan</button><button class="btn2" data-a="restore"><i data-lucide="upload"></i>Pulihkan dari file</button></div>
@@ -771,18 +773,19 @@ function mStruk() {
       : `<div class="st-check bad"><i data-lucide="triangle-alert"></i><span><b>Struk kurang jelas terbaca.</b> Periksa angkanya, atau foto ulang lebih dekat, dari atas, di tempat terang, tanpa jari menutupi tulisan.</span></div>`;
   return `<div class="st-done"><div class="st-img small"><img src="${s.img}" alt="Foto struk"></div><div><span class="type out">Pengeluaran</span><p class="muted" style="margin:6px 0 0">${f.items.length} produk terbaca</p><small class="st-via">${s.via === 'ai' ? `<i data-lucide="sparkles"></i>Dibaca AI · ${esc((r.model || 'Gemini').replace('gemini-', 'Gemini ').replace(/-/g, ' '))}` : `<i data-lucide="scan-line"></i>Dibaca OCR di HP${s.why ? ` · ${esc(s.why)}` : ''}`}</small></div></div>
   ${banner}
-  <span class="lab">Produk</span>
+  <button class="sp-toggle ${f.split ? 'on' : ''}" data-a="spToggle"><span class="ic"><i data-lucide="users"></i></span><span><b>Bayar bersama</b><small>${f.split ? 'Ketuk lagi untuk kembali mengubah produk' : 'Struk ini juga berisi pesanan orang lain? Tandai item milik Anda'}</small></span><span class="sw ${f.split ? 'on' : ''}"><i></i></span></button>
+  ${f.split ? spHTML(spSync(f), 'st') : `<span class="lab">Produk</span>
   <div class="st-items">${f.items.map((it, i) => `<div class="st-item"><input class="field" id="sti-n-${i}" value="${esc(it.name)}" placeholder="Nama produk" autocomplete="off" aria-label="Nama produk ${i + 1}"><input class="field" id="sti-a-${i}" inputmode="numeric" value="${it.amount ? fmtN(it.amount) : ''}" placeholder="Rp0" autocomplete="off" aria-label="Harga produk ${i + 1}"><button class="icon-btn" data-a="stiDel" data-i="${i}" aria-label="Hapus produk ${i + 1}"><i data-lucide="x"></i></button></div>`).join('')}
     <button class="btn2" style="width:100%" data-a="stiAdd"><i data-lucide="plus"></i>Tambah produk yang terlewat</button></div>
-  <div class="st-sum" id="stSum">${stSumHTML(f)}</div>
-  <span class="lab">Total dibayar</span><input class="field amt-field" id="stAmt" inputmode="numeric" value="${f.amount ? fmtN(f.amount) : ''}" placeholder="Rp0" autocomplete="off">
+  <div class="st-sum" id="stSum">${stSumHTML(f)}</div>`}
+  <span class="lab">${f.split ? 'Total struk (semua orang)' : 'Total dibayar'}</span><input class="field amt-field" id="stAmt" inputmode="numeric" value="${f.amount ? fmtN(f.amount) : ''}" placeholder="Rp0" autocomplete="off">
   <span class="lab">Catatan</span><input class="field" id="stNote" maxlength="60" value="${esc(f.note)}" autocomplete="off">
   <span class="lab">Tanggal${r.date ? '' : ' <em class="from-receipt warn">· tidak terbaca, diisi hari ini</em>'}</span><input class="field" type="date" id="stDate" value="${f.date}" max="${T()}">
   <span class="lab">Kategori</span><div class="hscroll">${OUTC().map((k) => `<button class="chip cat ${f.cat === k ? 'on' : ''}" style="--c:${CATS[k].c}" data-a="stset" data-k="cat" data-v="${k}" data-lp="cat" data-cat="${k}"><i data-lucide="${CATS[k].i}"></i>${CATS[k].n}</button>`).join('')}<button class="chip add" data-a="catNewCo" data-inc="0"><i data-lucide="plus"></i>Kategori baru</button></div>
   <div class="hscroll">${subsOrd(f.cat).map((x) => subChip(f.cat, x, f.sub === x, `data-a="stset" data-k="sub" data-v="${esc(x)}"`)).join('')}${subTools(f.cat, 'st')}</div>
   <span class="lab">Dibayar pakai${r.pay ? ` <em class="from-receipt">· struk: ${PAY_LABEL[r.pay] || r.pay}</em>` : ''}</span><div class="hscroll">${wchips}</div>
   <details class="st-more"><summary>Teks mentah dari foto</summary><pre>${esc(r.lines.join('\n') || '(kosong)')}</pre></details>
-  <button class="primary" data-a="saveStruk" ${f.amount ? '' : 'disabled'}><i data-lucide="check"></i>Simpan dari struk</button>
+  ${f.split ? spSaveBtn(f.split, f.amount, 'saveStruk') : `<button class="primary" data-a="saveStruk" ${f.amount ? '' : 'disabled'}><i data-lucide="check"></i>Simpan dari struk</button>`}
   <button class="btn2" style="width:100%;margin-top:8px;background:none" data-a="stRetry"><i data-lucide="rotate-ccw"></i>Foto struk lain</button>`;
 }
 /** Products vs total: the difference is usually tax, service or a discount, or a product that was missed. */
@@ -806,7 +809,7 @@ async function startStruk(file) {
     mine.via = via; mine.why = why;
     const g = receiptGuess(res);
     if (!res.lines.length) throw new Error('empty');
-    const items = res.items.map((it) => ({ name: productLabel(it.name, it.qty), amount: it.amount, qty: it.qty }));
+    const items = res.items.map((it) => ({ name: productLabel(it.name, it.qty), amount: it.amount, qty: it.qty, ...(it.unit ? { unit: it.unit } : {}) }));
     const shop = via === 'ai' || res.storeCat ? res.merchant || '' : '';
     const form = { amount: res.total || stSum({ items }) || 0, items, shop, cat: g.cat };
     S.struk = { ...mine, phase: 'done', via, why, res, form: { ...form, note: receiptNote(form), noteEdited: false, date: res.date || T(), cat: g.cat, sub: g.sub, wallet: receiptWallet(res.pay) } };
@@ -928,6 +931,7 @@ function pvHTML() {
     const pk = S.nlPick === i && p.type !== 'tf' ? `<div class="picker"><span class="pk-lab">${S.nlCat && CATS[S.nlCat] ? 'Pilih subkategori' : 'Pilih kategori'}</span>${S.nlCat && CATS[S.nlCat] ? pkSubs(S.nlCat) : pkCats()}</div>` : '';
     return `<div class="pv${prev ? '' : ' new'}"><div class="pv-top"><span class="type ${p.type}">${tl}</span><span class="pv-amt${p.amount ? '' : ' none'}${pop('amt')}">${p.amount ? (p.type === 'in' ? '+' : '') + rp(p.amount) : 'Nominal belum terbaca'}</span></div><div class="pv-note">${esc(p.note)}</div><div class="chips">${chips}</div>${pk}${fk}
       ${p.assumed ? `<div class="hint"><i data-lucide="info"></i>Angka tanpa satuan dibaca ribuan: ${rp(p.amount)}</div>` : ''}
+      ${p.split ? `<div class="hint learned"><i data-lucide="users"></i>Bagian Anda ${rp(p.amount)} dari ${rp(p.split.total)} · bagi ${p.split.n} orang</div>` : ''}
       ${p.type === 'tf' && p.fee ? `<div class="hint learned"><i data-lucide="receipt"></i>${p.feeSrc === 'mem' ? `Biaya admin ${rp(p.fee)} diingat untuk rute ini. ` : ''}Keluar dari ${esc(W(p.wallet).name)} ${rp(p.amount + p.fee)}, masuk ${esc(W(p.to).name)} ${rp(p.amount)}</div>` : ''}
       ${p.learned ? `<div class="hint learned"><i data-lucide="brain"></i>Kategori diingat dari koreksi Anda</div>` : p.hist ? `<div class="hint learned"><i data-lucide="history"></i>Dari kebiasaan Anda: “${esc(p.hist.word)}” ${p.hist.n}× di ${esc(p.sub)}</div>` : ''}</div>`;
   }).join('')}</div>
@@ -956,7 +960,7 @@ function mManual() {
   ${m.type === 'tf' ? `<span class="lab">Dari</span><div class="hscroll">${wchips('wallet', m.wallet)}</div><span class="lab">Ke</span><div class="hscroll">${wchips('to', m.to)}</div>${mFeeHTML(m)}` :
   `<span class="lab">Kategori</span><div class="hscroll">${cats.map((k) => `<button class="chip cat ${m.cat === k ? 'on' : ''}" style="--c:${CATS[k].c}" data-a="mset" data-k="cat" data-v="${k}" data-lp="cat" data-cat="${k}"><i data-lucide="${CATS[k].i}"></i>${CATS[k].n}</button>`).join('')}<button class="chip add" data-a="catNewCo" data-inc="${m.type === 'in' ? 1 : 0}"><i data-lucide="plus"></i>Kategori baru</button></div>
   <div class="hscroll">${subsOrd(m.cat).map((s) => subChip(m.cat, s, m.sub === s, `data-a="mset" data-k="sub" data-v="${esc(s)}"`)).join('')}${subTools(m.cat, 'm')}</div>
-  <span class="lab">Dompet</span><div class="hscroll">${wchips('wallet', m.wallet)}</div>`}
+  <span class="lab">Dompet</span><div class="hscroll">${wchips('wallet', m.wallet)}</div>${m.type === 'out' && !S.editId ? mSplitHTML(m) : ''}`}
   <span class="lab">Tanggal</span><div class="hscroll">${quick.map(([d, l]) => `<button class="chip ${m.date === d ? 'on' : ''}" data-a="mset" data-k="date" data-v="${d}"><i data-lucide="calendar"></i>${l}</button>`).join('')}</div>
   <input class="field" type="date" id="mdate" value="${m.date}" max="${today}" aria-label="Tanggal transaksi">
   <input class="note-in" id="mnote" placeholder="Catatan (opsional), misal: makan dengan tim" value="${esc(m.note)}" autocomplete="off">
@@ -1052,8 +1056,10 @@ function sTx(id) {
   <div class="card" style="padding:4px 14px">
     <div class="kv" style="border-top:0"><span>Kategori</span><b>${t.type === 'tf' ? (t.debt ? c.n : 'Transfer') : `${c.n} · ${esc(t.sub)}`}</b></div>
     <div class="kv"><span>${t.type === 'tf' ? 'Dari → Ke' : 'Dompet'}</span><b>${t.type === 'tf' ? `${esc(w.name)} → ${esc(W(t.to).name)}` : esc(w.name)}</b></div>${t.type === 'tf' && feeMap()[t.id] ? `<button class="kv kv-btn" data-a="tx" data-id="${feeMap()[t.id].id}"><span>Biaya admin</span><b>${rp(feeMap()[t.id].amount)} · ${esc(feeMap()[t.id].sub)}<i data-lucide="chevron-right"></i></b></button><div class="kv"><span>Keluar dari ${esc(w.name)}</span><b>${rp(t.amount + feeMap()[t.id].amount)}</b></div>` : ''}${t.feeOf && TX().some((x) => x.id === t.feeOf) ? `<button class="kv kv-btn" data-a="tx" data-id="${t.feeOf}"><span>Biaya untuk</span><b>${esc(TX().find((x) => x.id === t.feeOf).note)}<i data-lucide="chevron-right"></i></b></button>` : ''}
+    ${t.split ? `<div class="kv"><span>Bayar bersama</span><b>Bagian Anda dari ${rp(t.split.total)} · ${t.split.n} orang</b></div>` : ''}${t.from ? `<div class="kv"><span>Dikirim oleh</span><b><i data-lucide="send"></i>${esc(t.from)}</b></div>` : ''}
     <div class="kv"><span>Tanggal</span><b>${longDate(t.date)}</b></div>
     <div class="kv"><span>Buku</span><b>${(BOOKS[t.book] || BOOKS.pribadi).n}</b></div>${t.type === 'out' && !t.debt && !t.inv ? `<button class="kv kv-btn" data-a="txFixed" data-id="${t.id}"><span><i data-lucide="lock"></i>Pengeluaran tetap</span><span class="sw ${t.fixed ? 'on' : ''}" role="switch" aria-checked="${!!t.fixed}"><i></i></span></button>` : ''}${t.items?.length ? `<div class="kv tx-items"><span>Produk</span><div>${t.items.map((it) => `<div><span>${esc(it.name)}${it.qty > 1 && !/\(\d/.test(it.name) ? ` ×${it.qty}` : ''}</span><b>${rp(it.amount)}</b></div>`).join('')}</div></div>` : ''}${rule ? `<div class="kv"><span>Berulang</span><b>${scheduleLabel(rule)} · ${rule.auto ? 'otomatis' : 'tanya dulu'}</b></div>` : ''}</div>
+  ${t.type === 'out' && !t.split && !t.adj && !t.feeOf && !t.debt && !t.inv && !t.from ? `<button class="btn2 wide sp-open" data-a="spTx" data-id="${t.id}"><i data-lucide="users"></i>Bagi tagihan (bayar bersama)</button>` : ''}
   ${t.debt ? `<button class="btn2 wide" data-a="debt" data-id="${t.debt}"><i data-lucide="hand-coins"></i>Buka catatan utang & piutang</button>` : t.inv ? `<button class="btn2 wide" data-a="asset" data-id="${t.inv}"><i data-lucide="chart-candlestick"></i>Buka aset investasi</button>` : txButtons(t, rule)}
   ${t.debtInit ? '' : `<button class="danger" data-a="del" data-id="${t.id}">Hapus transaksi</button>`}`);
 }
@@ -1380,6 +1386,259 @@ function cfAddSub() {
   if (CF.subs.some((s) => s.toLowerCase() === v.toLowerCase())) return toast('Subkategori itu sudah ada');
   if (CF.k) { store.addSub(CF.k, v); CF.subs = CATS[CF.k].subs.slice(); afterCatChange(); toast(`Subkategori “${v}” ditambahkan`); } else CF.subs.push(v);
   cfDraw(); $('cfSub')?.focus();
+}
+
+/* ================= shared bills ("Bayar bersama") ================= */
+const partner = () => store.data.settings.partner || null;
+const pName = () => (partner()?.name || 'Pasangan');
+const pcsOf = (l) => (l.qty > 1 && Number.isInteger(l.qty) ? l.qty : 1);
+const spState = (l) => (l.shared ? 'shared' : l.me >= pcsOf(l) ? 'me' : l.pa >= pcsOf(l) ? 'pa' : l.me + l.pa === 0 ? 'friend' : 'mix');
+const SP_LBL = { friend: 'Teman', me: 'Saya', shared: 'Bersama', mix: 'Campur' };
+/** Keep the shared-bill lines in step with the receipt's products (edited names and prices, added or removed lines). */
+function spSync(f) {
+  const sp = f.split, old = sp.lines || [];
+  sp.lines = f.items.filter((it) => it.name.trim() && it.amount > 0).map((it, i) => {
+    const o = old[i] && old[i].amount === it.amount ? old[i] : {};
+    return { name: it.name.trim().replace(/\s*\(\d+\s*pcs\)$/i, ''), amount: it.amount, ...(it.qty ? { qty: it.qty } : {}), ...(it.unit ? { unit: it.unit } : {}), me: Math.min(o.me || 0, pcsOf(it)), pa: Math.min(o.pa || 0, pcsOf(it)), shared: !!o.shared, shMe: !!o.shMe, shPa: !!o.shPa, ...(o.n ? { n: o.n } : {}) };
+  });
+  return sp;
+}
+const newSplit = () => ({ n: 2, mode: 'prop', lines: [] });
+function spTotal(c) { return c === 'st' ? S.struk.form.amount : TXS.total; }
+function spOf(c) { return c === 'st' ? S.struk.form.split : TXS.sp; }
+function spRedraw(c) {
+  if (c === 'st') { const sc = $('cobody').scrollTop; rerenderMode(); $('cobody').scrollTop = sc; }
+  else { sheetKey = 'sptx'; sSplitTx(TXS.id, true); }
+}
+function spHTML(sp, c) {
+  const tot = spTotal(c), r = splitBill(sp.lines, tot, sp.n, sp.mode), linked = !!partner();
+  const row = (l, i) => {
+    const st = spState(l), q = pcsOf(l), u = unitPrice(l), mine = lineShare(l, 'me', sp.n), hers = lineShare(l, 'pa', sp.n);
+    const lbl = st === 'pa' ? pName() : st === 'mix' ? (l.pa ? (l.me ? 'Campur' : `${pName()} ${l.pa}/${q}`) : `Saya ${l.me}/${q}`) : SP_LBL[st];
+    let ctl = '';
+    if (l.shared) ctl = `<div class="sp-ctl"><span>Dibagi</span><button data-a="spShN" data-c="${c}" data-i="${i}" data-d="-1" aria-label="Kurangi orang"><i data-lucide="minus"></i></button><b>${l.n || sp.n}</b><button data-a="spShN" data-c="${c}" data-i="${i}" data-d="1" aria-label="Tambah orang"><i data-lucide="plus"></i></button><span>orang</span>
+        <button class="sp-who ${l.shMe ? 'on' : ''}" data-a="spShWho" data-c="${c}" data-i="${i}" data-w="me">${l.shMe ? '<i data-lucide="check"></i>' : ''}Saya</button>${linked ? `<button class="sp-who pa ${l.shPa ? 'on' : ''}" data-a="spShWho" data-c="${c}" data-i="${i}" data-w="pa">${l.shPa ? '<i data-lucide="check"></i>' : ''}${esc(pName())}</button>` : ''}</div>`;
+    else if (q > 1 && st !== 'friend') ctl = `<div class="sp-ctl"><span>Saya</span><button data-a="spPcs" data-c="${c}" data-i="${i}" data-w="me" data-d="-1" aria-label="Kurangi"><i data-lucide="minus"></i></button><b>${l.me}</b><button data-a="spPcs" data-c="${c}" data-i="${i}" data-w="me" data-d="1" aria-label="Tambah"><i data-lucide="plus"></i></button>${linked ? `<span class="pa">${esc(pName())}</span><button data-a="spPcs" data-c="${c}" data-i="${i}" data-w="pa" data-d="-1" aria-label="Kurangi"><i data-lucide="minus"></i></button><b>${l.pa}</b><button data-a="spPcs" data-c="${c}" data-i="${i}" data-w="pa" data-d="1" aria-label="Tambah"><i data-lucide="plus"></i></button>` : ''}<span>dari ${q} pcs</span></div>`;
+    return `<div class="sp-row own-${st}" style="--i:${Math.min(i, 12)}">
+      <button class="sp-own" data-a="spOwn" data-c="${c}" data-i="${i}" aria-label="Ganti pemilik ${esc(l.name)}">${esc(lbl)}</button>
+      <div class="sp-main"><b>${esc(l.name)}</b><small>${q > 1 ? `${q} × ${rp(Math.round(u))} = ` : ''}${rp(l.amount)}</small></div>
+      <div class="sp-val">${mine ? `<b class="m">${rp(Math.round(mine))}</b>` : st === 'friend' ? '<b class="dim">–</b>' : ''}${hers ? `<small class="pa">${esc(pName())} ${rp(Math.round(hers))}</small>` : ''}</div>${ctl}</div>`;
+  };
+  return `<div class="sp-box">
+    <div class="sp-people"><span><b>Berapa orang ikut?</b><small>untuk item yang dimakan atau dipakai bersama</small></span><div class="sp-step"><button data-a="spN" data-c="${c}" data-d="-1" aria-label="Kurangi"><i data-lucide="minus"></i></button><b>${sp.n}</b><button data-a="spN" data-c="${c}" data-d="1" aria-label="Tambah"><i data-lucide="plus"></i></button></div></div>
+    <p class="sp-tip"><i data-lucide="pointer"></i>Ketuk label di kiri untuk mengganti pemilik: Teman → Saya${linked ? ` → ${esc(pName())}` : ''} → Bersama.</p>
+    <div class="sp-list">${sp.lines.map(row).join('') || '<p class="form-note">Belum ada produk. Matikan Bayar bersama untuk menambah produk.</p>'}</div>
+    ${r.extra ? `<div class="sp-x"><span>${r.extra > 0 ? 'Pajak, servis & biaya' : 'Diskon'} <b class="m">${r.extra > 0 ? '+' : '−'}${rp(Math.abs(r.extra))}</b></span><div class="sp-seg"><button class="${sp.mode === 'prop' ? 'on' : ''}" data-a="spMode" data-c="${c}" data-v="prop">Sebanding</button><button class="${sp.mode === 'equal' ? 'on' : ''}" data-a="spMode" data-c="${c}" data-v="equal">Rata</button></div></div>` : ''}
+    <div class="sp-sum">
+      <div class="me"><span>Bagian saya<small>dicatat sebagai pengeluaran Anda</small></span><b class="m">${rp(r.me)}</b></div>
+      ${linked ? `<div class="pa"><span>${esc(pName())}<small>${r.pa ? 'dikirim ke Do it Dip-nya' : 'belum ada item'}</small></span><b class="m">${rp(r.pa)}</b></div>` : ''}
+      <div class="fr"><span>Teman<small>tidak dicatat</small></span><b class="m">${rp(r.friends)}</b></div>
+    </div>
+    ${!linked && cloudOn() ? '<p class="form-note">Hubungkan akun pasangan di Lainnya → Pasangan agar bagiannya bisa dikirim langsung.</p>' : ''}</div>`;
+}
+function spSaveBtn(sp, total, action, extraAttr = '') {
+  const r = splitBill(sp.lines, total, sp.n, sp.mode), send = r.pa && partner();
+  return `<button class="primary" data-a="${action}" ${extraAttr} ${r.me || send ? '' : 'disabled'}><i data-lucide="${send ? 'send' : 'check'}"></i>${r.me ? `Simpan bagian saya ${rp(r.me)}` : 'Kirim saja'}${send ? ` & kirim ${rp(r.pa)}` : ''}</button>`;
+}
+function spPayload(base, r, total, n) {
+  return { v: 1, kind: 'bill', note: base.note, store: base.store || '', date: base.date, cat: base.cat, sub: base.sub, amount: r.pa, items: r.paItems, total, n };
+}
+function saveSplitStruk(f, el) {
+  const sp = spSync(f), r = splitBill(sp.lines, f.amount, sp.n, sp.mode);
+  if (!r.me && !(r.pa && partner())) { toast('Tandai dulu item milik Anda'); return; }
+  // the automatic title describes each person's own products ("Belanja Indomaret · 3 produk")
+  const note = f.noteEdited ? (f.note || 'Belanja').trim() : receiptTitle(r.meItems, f.shop, f.cat) || 'Belanja', paNote = f.noteEdited ? note : receiptTitle(r.paItems, f.shop, f.cat) || note;
+  if (r.me) { const t = store.addTx({ date: f.date, type: 'out', cat: f.cat, sub: f.sub, amount: r.me, wallet: f.wallet, to: null, note, items: r.meItems, split: { total: f.amount, n: sp.n } }); markFresh([t]); }
+  const sent = r.pa && partner() ? sendPart(spPayload({ note: paNote, store: f.shop, date: f.date, cat: f.cat, sub: f.sub }, r, f.amount, sp.n), el) : false;
+  S.struk = { phase: 'idle' };
+  if (r.me) celebrate(rp(r.me), 'out', el, `Bagian Anda ${rp(r.me)} tersimpan${sent ? ` · ${rp(r.pa)} dikirim ke ${pName()}` : ''}`);
+  else { closeComposer(); refresh(); }
+}
+/* manual: split the amount equally */
+function mSplitHTML(m) {
+  const sp = m.sp || {}, amt = Number(m.amt) || 0, n = sp.n || 2, share = Math.round(amt / n);
+  return `<button class="sp-toggle ${sp.on ? 'on' : ''}" data-a="mSplit"><span class="ic"><i data-lucide="users"></i></span><span><b>Bagi rata</b><small>${sp.on ? `Bagian Anda ${rp(share)} dari ${rp(amt)}` : 'Bayar bersama: catat bagian Anda saja'}</small></span><span class="sw ${sp.on ? 'on' : ''}"><i></i></span></button>
+  ${sp.on ? `<div class="sp-box sm"><div class="sp-people"><span><b>Dibagi berapa orang?</b></span><div class="sp-step"><button data-a="mSplitN" data-d="-1" aria-label="Kurangi"><i data-lucide="minus"></i></button><b>${n}</b><button data-a="mSplitN" data-d="1" aria-label="Tambah"><i data-lucide="plus"></i></button></div></div>
+    ${partner() ? `<button class="sp-who pa ${sp.pa ? 'on' : ''}" data-a="mSplitPa">${sp.pa ? '<i data-lucide="check"></i>' : ''}Kirim 1 bagian (${rp(share)}) ke ${esc(pName())}</button>` : ''}</div>` : ''}`;
+}
+function saveSplitManual(m, amt, note, el) {
+  const n = m.sp.n || 2, share = Math.round(amt / n);
+  const t = store.addTx({ date: m.date, type: 'out', cat: m.cat, sub: m.sub, amount: share, wallet: m.wallet, to: null, note, split: { total: amt, n } }); markFresh([t]);
+  const sent = m.sp.pa && partner() ? sendPart({ v: 1, kind: 'bill', note, store: '', date: m.date, cat: m.cat, sub: m.sub, amount: share, items: [], total: amt, n }, el) : false;
+  const src = $('mamt'); S.m = null;
+  celebrate(rp(share), 'out', src, `Bagian Anda ${rp(share)} dari ${rp(amt)}${sent ? ` · dikirim ke ${pName()}` : ''}`);
+}
+/* a transaction already saved in full: split it afterwards */
+let TXS = null;
+function sSplitTx(id, keep) {
+  const t = TX().find((x) => x.id === id); if (!t) return;
+  if (!keep || !TXS || TXS.id !== id) {
+    const its = (t.items || []).filter((x) => x.amount > 0);
+    const lines = its.length ? its.map((x) => ({ name: x.name, amount: x.amount, ...(x.qty ? { qty: x.qty } : {}), me: 0, pa: 0 }))
+      : [{ name: t.note, amount: t.amount, me: 0, pa: 0, shared: true, shMe: true, shPa: !!partner() }];
+    TXS = { id, total: t.amount, sp: { n: 2, mode: 'prop', lines } };
+  }
+  sheetKey = 'sptx';
+  openSheet('Bagi tagihan', `<p class="confirm-text" style="margin-top:0"><b>${esc(t.note)}</b> · ${rp(t.amount)} · ${esc(dayLabel(t.date, T()))}. Setelah dibagi, yang tercatat sebagai pengeluaran Anda hanya bagian Anda.</p>${spHTML(TXS.sp, 'tx')}${spSaveBtn(TXS.sp, TXS.total, 'spTxSave')}`);
+}
+function saveSplitTx(el) {
+  const t = TX().find((x) => x.id === TXS.id); if (!t) return;
+  const sp = TXS.sp, r = splitBill(sp.lines, TXS.total, sp.n, sp.mode);
+  if (!r.me) { toast('Tandai dulu bagian Anda'); return; }
+  const its = (t.items || []).length ? { items: r.meItems } : {};
+  const u = store.updateTx(t.id, { amount: r.me, split: { total: TXS.total, n: sp.n }, ...its }); if (u) markFresh([u]);
+  const sent = r.pa && partner() ? sendPart(spPayload({ note: t.note, store: '', date: t.date, cat: t.cat, sub: t.sub }, r, TXS.total, sp.n), el) : false;
+  closeSheet(); refresh(); toast(`Bagian Anda ${rp(r.me)} dari ${rp(TXS.total)}${sent ? ` · ${rp(r.pa)} dikirim ke ${pName()}` : ''}`);
+}
+
+/* ================= partner: linked account and inbox ================= */
+const PT = { me: '', email: '', links: [], waiting: [], sent: [], err: '', ready: false, at: 0, shown: new Set(), invited: new Set() };
+/** Queue a part of a bill for my partner and send it (kept on this device until the cloud has it). */
+function sendPart(payload, el) {
+  const p = partner(); if (!p) return false;
+  store.setSetting('outbox', [...(store.data.settings.outbox || []), { id: 'o-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), to: p.id, payload }]);
+  planeOut(el); flushOutbox().then(() => partnerPoll(true));
+  return true;
+}
+async function flushOutbox() {
+  const box = store.data.settings.outbox || []; if (!box.length || !cloudOn() || !navigator.onLine) return;
+  const left = [];
+  for (const o of box) { try { await cloud.sendToPartner(o.to, store.data.settings.name || '', o.payload); } catch (e) { left.push(o); PT.err = cloud.cloudError(e); } }
+  store.setSetting('outbox', left);
+  if (left.length) toast(`${left.length} kiriman belum terkirim. Dicoba lagi nanti.`);
+}
+async function partnerPoll(force) {
+  if (!cloudOn() || !navigator.onLine || !store.data.settings.onboarded) return;
+  if (!force && Date.now() - PT.at < 20000) return;
+  PT.at = Date.now();
+  try {
+    const { me, email, links } = await cloud.partnerLinks();
+    PT.me = me; PT.email = email; PT.links = links; PT.err = '';
+    const a = links.find((l) => l.status === 'active');
+    const p = a ? (a.from_id === me ? { id: a.to_id, name: a.to_name || a.to_email.split('@')[0], email: a.to_email, link: a.id } : { id: a.from_id, name: a.from_name || a.from_email.split('@')[0], email: a.from_email, link: a.id }) : null;
+    if (JSON.stringify(p) !== JSON.stringify(partner())) store.setSetting('partner', p);
+    await flushOutbox();
+    if (p) { const r = await cloud.inboxRows(); const done = new Set(store.data.settings.inboxDone || []); PT.waiting = r.waiting.filter((x) => !done.has(x.id)); PT.sent = r.sent; }
+    else { PT.waiting = []; PT.sent = []; }
+    PT.ready = true;
+  } catch (e) { PT.err = cloud.cloudError(e); PT.ready = true; }
+  ptRefreshBits();
+  ptAttention();
+}
+function ptRefreshBits() {
+  const slot = $('inboxSlot'); if (slot) { slot.innerHTML = inboxBtnHTML(); icons(); }
+  const c = $('ptCard'); if (c) { c.innerHTML = ptInner(); icons(); }
+  if ($('layer').querySelector('.sheet[data-key="inbox"]')) sInbox();
+}
+const ptIdle = () => !$('layer').innerHTML && $('composer').hidden && $('onb').hidden && !(document.getElementById('lock') && !document.getElementById('lock').hidden) && !(document.body.classList.contains('desk') && !document.body.classList.contains('phone-open'));
+/** New items or a new invitation: fly them in when nothing else is on screen. */
+function ptAttention(n = 0) {
+  const inv = PT.links.find((l) => l.status === 'pending' && l.from_id !== PT.me && !PT.invited.has(l.id));
+  const fresh = PT.waiting.filter((x) => !PT.shown.has(x.id));
+  if (!inv && !fresh.length) return;
+  if (!ptIdle()) { if (n < 30) setTimeout(() => ptAttention(n + 1), 2000); return; }
+  if (inv) { PT.invited.add(inv.id); sInvite(inv); return; }
+  fresh.forEach((x) => PT.shown.add(x.id));
+  planeIn(() => sInbox());
+}
+function inboxBtnHTML() {
+  const n = PT.waiting.length; if (!n) return '';
+  return `<button class="inbox-btn" data-a="inboxOpen" aria-label="${n} kiriman dari pasangan"><i data-lucide="mail"></i><span>${n}</span></button>`;
+}
+const initial = (s) => esc((s || '?').trim().charAt(0).toUpperCase());
+function ptInner() {
+  const head = (status, cls = '') => `<h4>Pasangan <span class="status ${cls}">${status}</span></h4>`;
+  if (!cloudOn()) return `${head('Belum tersambung')}<p class="about" style="margin:0">Masuk ke Cadangan online dulu. Setelah itu Anda bisa terhubung dengan akun Do it Dip pasangan dan saling mengirim bagian dari struk bersama.</p>`;
+  if (!PT.ready) { setTimeout(() => partnerPoll(true), 50); return `${head('Memuat…')}<p class="about" style="margin:0">Memeriksa sambungan…</p>`; }
+  if (PT.err && !PT.links.length) return `${head('Gagal', 'bad')}<p class="about" style="margin:0 0 10px;color:var(--out)">${esc(PT.err)}</p><button class="btn2 wide" data-a="ptRefresh"><i data-lucide="refresh-cw"></i>Coba lagi</button>`;
+  const p = partner(), me = store.data.settings.name || 'Saya';
+  if (p) {
+    const kind = (x) => (x.status === 'done' ? ['Diterima', 'good'] : x.status === 'declined' ? ['Ditolak', 'bad'] : ['Menunggu', 'warn']);
+    return `${head('Terhubung', 'good')}
+      <div class="pt-pair"><span class="pt-av">${initial(me)}</span><span class="pt-heart"><i data-lucide="heart"></i></span><span class="pt-av pa">${initial(p.name)}</span></div>
+      <p class="about" style="margin:0 0 10px;text-align:center">Terhubung dengan <b>${esc(p.name)}</b> (${esc(p.email)}). Item miliknya di struk bersama bisa langsung dikirim ke Do it Dip-nya. Catatan lain tetap terpisah.</p>
+      ${PT.sent.length ? `<div class="pt-sent">${PT.sent.slice(0, 5).map((x) => { const k = kind(x), pl = x.payload || {}; return `<div><i data-lucide="send"></i><span>${esc(pl.note || 'Kiriman')}<small>${esc(dayLabel(String(x.created_at).slice(0, 10), T()))}</small></span><b class="m">${rp(pl.amount || 0)}</b><em class="${k[1]}">${k[0]}</em></div>`; }).join('')}</div>` : ''}
+      <div class="btn-row"><button class="btn2" data-a="inboxOpen" ${PT.waiting.length ? '' : 'disabled'}><i data-lucide="inbox"></i>Kiriman${PT.waiting.length ? ` (${PT.waiting.length})` : ''}</button><button class="btn2" data-a="ptRemove" data-id="${p.link}"><i data-lucide="x"></i>Putuskan</button></div>`;
+  }
+  const inn = PT.links.find((l) => l.status === 'pending' && l.from_id !== PT.me), out = PT.links.find((l) => l.status === 'pending' && l.from_id === PT.me);
+  if (inn) return `${head('Undangan masuk', 'warn')}<p class="about" style="margin:0 0 10px"><b>${esc(inn.from_name || inn.from_email)}</b> (${esc(inn.from_email)}) mengajak menghubungkan Do it Dip.</p><div class="btn-row"><button class="btn2 primaryish" data-a="ptAccept" data-id="${inn.id}"><i data-lucide="heart"></i>Terima</button><button class="btn2" data-a="ptRemove" data-id="${inn.id}">Tolak</button></div>`;
+  if (out) return `${head('Menunggu', 'warn')}<p class="about" style="margin:0 0 10px">Undangan terkirim ke <b>${esc(out.to_email)}</b>. Begitu pasangan membuka Do it Dip dan menerimanya, akun kalian terhubung.</p><div class="btn-row"><button class="btn2" data-a="ptRefresh"><i data-lucide="refresh-cw"></i>Periksa</button><button class="btn2" data-a="ptRemove" data-id="${out.id}">Batalkan</button></div>`;
+  return `${head('Belum terhubung')}<p class="about" style="margin:0 0 10px">Hubungkan dengan akun Do it Dip pasangan. Bagian pasangan di struk bersama bisa langsung dikirim ke aplikasinya, dan pasangan tinggal menerimanya.</p>
+    <div class="fee-in"><input class="field" id="ptEmail" type="email" inputmode="email" autocomplete="off" autocapitalize="none" placeholder="Email akun pasangan"><button class="btn2" data-a="ptInvite"><i data-lucide="user-plus"></i>Undang</button></div>`;
+}
+function sInvite(l) {
+  sheetKey = 'ptinv';
+  openSheet('Undangan', `<div class="pt-invite"><div class="pt-pair big"><span class="pt-av">${initial(l.from_name || l.from_email)}</span><span class="pt-heart"><i data-lucide="heart"></i></span><span class="pt-av pa">${initial(store.data.settings.name)}</span></div>
+    <h2>${esc(l.from_name || l.from_email)} mengajak terhubung</h2>
+    <p>Setelah terhubung, kalian bisa saling mengirim bagian dari struk bersama. Catatan keuangan lainnya tetap terpisah dan tidak saling terlihat.</p></div>
+    <button class="primary" data-a="ptAccept" data-id="${l.id}"><i data-lucide="heart"></i>Terima</button><button class="btn2 wide" data-a="close">Nanti</button>`);
+}
+/* inbox: parts of bills sent by my partner */
+let IBX = null;
+function sInbox() {
+  const r = PT.waiting[0];
+  if (!r) { if ($('layer').querySelector('.sheet[data-key="inbox"]')) closeSheet(); return; }
+  const p = r.payload || {};
+  if (!IBX || IBX.id !== r.id) {
+    const cat = CATS[p.cat] && !CATS[p.cat].hidden && !CATS[p.cat].inc ? p.cat : (kwHit(p.note || '')?.cat || OUTC()[0]);
+    IBX = { id: r.id, cat, sub: CATS[cat].subs.includes(p.sub) ? p.sub : subsOrd(cat)[0], wallet: defaults().cash };
+  }
+  const items = Array.isArray(p.items) ? p.items : [], from = r.from_name || pName();
+  sheetKey = 'inbox';
+  openSheet(PT.waiting.length > 1 ? `Kiriman (${PT.waiting.length})` : 'Kiriman', `<div class="ib-card" id="ibCard">
+      <div class="ib-from"><span class="ib-av"><i data-lucide="send"></i></span><div><small>Dari</small><b>${esc(from)}</b></div><span class="ib-when">${esc(dayLabel(p.date || T(), T()))}</span></div>
+      <div class="ib-amt m">${rp(p.amount || 0)}</div>
+      <p class="ib-note">${esc(p.note || 'Bayar bersama')}${p.total ? ` · bagianmu dari ${rp(p.total)}${p.n ? `, ${p.n} orang` : ''}` : ''}</p>
+      ${items.length ? `<div class="ib-items">${items.map((x) => `<div><span>${esc(x.name)}${x.qty > 1 ? ` <em>×${x.qty}</em>` : ''}</span><b class="m">${rp(x.amount || 0)}</b></div>`).join('')}</div>` : ''}</div>
+    <span class="lab">Dibayar pakai</span><div class="hscroll">${WL().map((w) => `<button class="chip ${IBX.wallet === w.id ? 'on' : ''}" data-a="ibSet" data-k="wallet" data-v="${w.id}"><i data-lucide="${WALLET_ICON[w.group]}"></i>${esc(w.name)}</button>`).join('')}</div>
+    <span class="lab">Kategori</span><div class="hscroll">${OUTC().map((k) => `<button class="chip cat ${IBX.cat === k ? 'on' : ''}" style="--c:${CATS[k].c}" data-a="ibSet" data-k="cat" data-v="${k}"><i data-lucide="${CATS[k].i}"></i>${esc(CATS[k].n)}</button>`).join('')}</div>
+    <div class="hscroll">${subsOrd(IBX.cat).map((x) => `<button class="chip ${IBX.sub === x ? 'on' : ''}" data-a="ibSet" data-k="sub" data-v="${esc(x)}">${esc(x)}</button>`).join('')}</div>
+    <button class="primary" data-a="ibAccept"><i data-lucide="check"></i>Terima & catat ${rp(p.amount || 0)}</button>
+    <button class="btn2 wide" data-a="ibDecline">Tolak</button>`);
+}
+function ibAnswer(status, el) {
+  const r = PT.waiting[0]; if (!r) return;
+  const p = r.payload || {}, from = r.from_name || pName();
+  if (status === 'done') {
+    const items = (Array.isArray(p.items) ? p.items : []).filter((x) => x && x.name && x.amount > 0).map((x) => ({ name: String(x.name), amount: Math.round(x.amount), ...(x.qty > 1 ? { qty: x.qty } : {}) }));
+    const t = store.addTx({ date: p.date && p.date <= T() ? p.date : T(), type: 'out', cat: IBX.cat, sub: IBX.sub, amount: Math.round(p.amount || 0), wallet: IBX.wallet, to: null, note: p.note || 'Bayar bersama', ...(items.length ? { items } : {}), ...(p.total ? { split: { total: p.total, n: p.n || 2 } } : {}), from });
+    markFresh([t]);
+  }
+  store.setSetting('inboxDone', [...(store.data.settings.inboxDone || []), r.id].slice(-200));
+  cloud.answerInbox(r.id, status).catch(() => {});
+  PT.waiting.shift(); IBX = null;
+  const card = $('ibCard');
+  if (status === 'done' && card) { const b = card.getBoundingClientRect(), a = app().getBoundingClientRect(); burst(b.left - a.left + b.width / 2, b.top - a.top + 40); }
+  if (card && !reduced()) card.classList.add(status === 'done' ? 'ib-ok' : 'ib-no');
+  setTimeout(() => { refresh(); ptRefreshBits(); if (PT.waiting.length) sInbox(); else closeSheet(); }, reduced() ? 0 : 420);
+  toast(status === 'done' ? `Dicatat: ${rp(p.amount || 0)} dari ${from}` : 'Kiriman ditolak');
+}
+/* paper planes */
+function planeTrail(fly, ms) {
+  const ph = app(), a = ph.getBoundingClientRect(), t0 = performance.now();
+  const tick = () => {
+    const pl = fly.querySelector('.pl'); if (!pl || performance.now() - t0 > ms) return;
+    const r = pl.getBoundingClientRect(), d = document.createElement('span'); d.className = 'pl-dot';
+    d.style.left = r.left - a.left + r.width / 2 + 'px'; d.style.top = r.top - a.top + r.height / 2 + 'px'; ph.appendChild(d); setTimeout(() => d.remove(), 700);
+    setTimeout(() => requestAnimationFrame(tick), 45);
+  };
+  requestAnimationFrame(tick);
+}
+function planeIn(done) {
+  if (reduced()) { done(); return; }
+  const f = document.createElement('div'); f.className = 'plane-fly in';
+  f.innerHTML = '<div class="pl"><i data-lucide="send"></i></div><div class="pl-env"><i data-lucide="mail"></i><span class="pl-ring"></span></div>';
+  app().appendChild(f); icons(); planeTrail(f, 1200);
+  setTimeout(() => { f.remove(); done(); }, 1750);
+}
+function planeOut(el) {
+  if (reduced()) return;
+  const ph = app(), a = ph.getBoundingClientRect(), r = (el && el.getBoundingClientRect && el.getBoundingClientRect()) || { left: a.left + a.width / 2, top: a.top + a.height * 0.8, width: 0, height: 0 };
+  const f = document.createElement('div'); f.className = 'plane-fly out';
+  f.style.setProperty('--x', r.left - a.left + r.width / 2 + 'px'); f.style.setProperty('--y', r.top - a.top + r.height / 2 + 'px');
+  f.innerHTML = '<div class="pl"><i data-lucide="send"></i></div>';
+  ph.appendChild(f); icons(); planeTrail(f, 1100);
+  setTimeout(() => f.remove(), 1400);
 }
 
 /* ================= balance check ("Cocokkan saldo") ================= */
@@ -2154,6 +2413,8 @@ function bindEvents() {
     if (id.startsWith('obw-') || id === 'wfInit') { const v = digitsOnly(e.target.value); e.target.value = v ? fmtN(v) : ''; if (id.startsWith('obw-')) S.ob.wallets[Number(id.slice(4))].init = String(v); }
   });
   document.addEventListener('scroll', (e) => { if (e.target.id === 'nl') syncHL(); }, true);
+  // shared bill: the shares follow a corrected receipt total once the field is left
+  document.addEventListener('change', (e) => { if (e.target.id === 'stAmt' && S.struk?.form?.split) spRedraw('st'); });
   document.addEventListener('change', (e) => {
     const id = e.target.id, f = e.target.files?.[0]; if (!f) return;
     if (id === 'restoreFile') readBackupFile(f);
@@ -2207,6 +2468,7 @@ function bindEvents() {
     if (document.hidden) { if (cloudOn() && store.data.settings.cloudDirty) pushNow(); return; }
     if (store.data.settings.onboarded && $('composer').hidden) refresh();
     maybeOfferRecon();
+    partnerPoll();
     if (cloudOn()) syncNow(false); else runRecurring();
     if (!S.pricesAt || Date.now() - S.pricesAt > 3 * 3600e3) refreshPrices(false);
   });
@@ -2353,6 +2615,50 @@ function onClick(e) {
       });
       break;
     }
+    /* shared bills */
+    case 'spToggle': { const f = S.struk.form; f.split = f.split ? null : newSplit(); spRedraw('st'); break; }
+    case 'spN': { const sp = spOf(d.c); sp.n = Math.max(2, Math.min(20, sp.n + Number(d.d))); spRedraw(d.c); break; }
+    case 'spMode': spOf(d.c).mode = d.v; spRedraw(d.c); break;
+    case 'spOwn': {
+      const sp = spOf(d.c), l = sp.lines[Number(d.i)], q = pcsOf(l), order = ['friend', 'me', ...(partner() ? ['pa'] : []), 'shared'];
+      const st = spState(l), next = order[(order.indexOf(st === 'mix' ? 'me' : st) + 1) % order.length];
+      Object.assign(l, { me: next === 'me' ? q : 0, pa: next === 'pa' ? q : 0, shared: next === 'shared', shMe: next === 'shared', shPa: next === 'shared' && !!partner() });
+      spRedraw(d.c); break;
+    }
+    case 'spPcs': { const l = spOf(d.c).lines[Number(d.i)], q = pcsOf(l), other = d.w === 'me' ? l.pa : l.me; l[d.w] = Math.max(0, Math.min(q - other, l[d.w] + Number(d.d))); spRedraw(d.c); break; }
+    case 'spShN': { const sp = spOf(d.c), l = sp.lines[Number(d.i)]; l.n = Math.max(2, Math.min(20, (l.n || sp.n) + Number(d.d))); spRedraw(d.c); break; }
+    case 'spShWho': { const l = spOf(d.c).lines[Number(d.i)]; if (d.w === 'me') l.shMe = !l.shMe; else l.shPa = !l.shPa; spRedraw(d.c); break; }
+    case 'spTx': TXS = null; sSplitTx(d.id); break;
+    case 'spTxSave': saveSplitTx(el); break;
+    case 'mSplit': { const m = S.m; m.sp = { n: 2, pa: false, ...(m.sp || {}), on: !m.sp?.on }; const sc = $('cobody').scrollTop; rerenderMode(); $('cobody').scrollTop = sc; break; }
+    case 'mSplitN': { const m = S.m; m.sp.n = Math.max(2, Math.min(20, (m.sp.n || 2) + Number(d.d))); const sc = $('cobody').scrollTop; rerenderMode(); $('cobody').scrollTop = sc; break; }
+    case 'mSplitPa': { const m = S.m; m.sp.pa = !m.sp.pa; const sc = $('cobody').scrollTop; rerenderMode(); $('cobody').scrollTop = sc; break; }
+    /* partner */
+    case 'ptRefresh': PT.ready = false; partnerPoll(true); break;
+    case 'ptInvite': {
+      const em = ($('ptEmail')?.value || '').trim().toLowerCase();
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) { toast('Alamat email belum benar'); break; }
+      if (em === (store.data.settings.cloudEmail || '').toLowerCase()) { toast('Itu email akun Anda sendiri'); break; }
+      el.disabled = true;
+      cloud.invitePartner(em, store.data.settings.name || '').then(() => { toast('Undangan terkirim'); return partnerPoll(true); }).catch((e) => { el.disabled = false; toast(cloud.cloudError(e)); });
+      break;
+    }
+    case 'ptAccept': {
+      el.disabled = true;
+      cloud.acceptPartner(d.id, store.data.settings.name || '').then(() => { closeSheet(); const r = el.getBoundingClientRect(), a = app().getBoundingClientRect(); burst(r.left - a.left + r.width / 2, r.top - a.top); toast('Akun kalian terhubung'); return partnerPoll(true); }).catch((e) => { el.disabled = false; toast(cloud.cloudError(e)); });
+      break;
+    }
+    case 'ptRemove': {
+      const l = PT.links.find((x) => x.id === d.id), active = l?.status === 'active';
+      sConfirm(active ? 'Putuskan sambungan?' : 'Hapus undangan?', active ? 'Kalian tidak bisa saling mengirim bagian struk lagi. Catatan yang sudah diterima tetap ada.' : 'Undangan ini dihapus.', active ? 'Putuskan' : 'Hapus', () => {
+        cloud.removeLink(d.id).then(() => { if (active) store.setSetting('partner', null); toast(active ? 'Sambungan diputus' : 'Undangan dihapus'); return partnerPoll(true); }).catch((e) => toast(cloud.cloudError(e)));
+      });
+      break;
+    }
+    case 'inboxOpen': if (PT.waiting.length) sInbox(); break;
+    case 'ibSet': { IBX[d.k] = d.v; if (d.k === 'cat') IBX.sub = subsOrd(d.v)[0]; sInbox(); break; }
+    case 'ibAccept': ibAnswer('done', el); break;
+    case 'ibDecline': ibAnswer('declined', el); break;
     /* balance check */
     case 'rcOpen': sRecon({}); break;
     case 'rcOne': sRecon({ only: d.id }); break;
@@ -2389,7 +2695,7 @@ function onClick(e) {
       const items = nlItems().filter((p) => p.amount > 0); if (!items.length) break;
       const src = document.querySelector('.pv-amt:not(.none)') || el;
       const added = items.map((p) => {
-        const t = store.addTx({ date: p.date, type: p.type, cat: p.type === 'tf' ? null : p.cat, sub: p.type === 'tf' ? null : p.sub, amount: p.amount, wallet: p.wallet, to: p.type === 'tf' ? p.to : null, note: p.note });
+        const t = store.addTx({ date: p.date, type: p.type, cat: p.type === 'tf' ? null : p.cat, sub: p.type === 'tf' ? null : p.sub, amount: p.amount, wallet: p.wallet, to: p.type === 'tf' ? p.to : null, note: p.note, ...(p.split ? { split: p.split } : {}) });
         // the admin fee rides along; the first fee typed for a route becomes its usual fee
         if (p.type === 'tf' && p.fee > 0) { store.setFee(t.id, p.fee); if (p.feeMem == null) store.rememberFee(p.wallet, p.to, p.fee); }
         return t;
@@ -2418,6 +2724,7 @@ function onClick(e) {
     case 'saveM': {
       const m = S.m, amt = Number(m.amt); if (!amt) break; if (m.type === 'tf' && m.wallet === m.to) { toast('Pilih dompet tujuan yang berbeda'); break; }
       const note = m.note.trim() || (m.type === 'tf' ? tfNote({ note: 'Transfer', to: m.to }) : m.sub);
+      if (m.type === 'out' && !S.editId && m.sp?.on) { saveSplitManual(m, amt, note, el); break; }
       const rec = { date: m.date, type: m.type, cat: m.type === 'tf' ? null : m.cat, sub: m.type === 'tf' ? null : m.sub, amount: amt, wallet: m.wallet, to: m.type === 'tf' ? m.to : null, note };
       const fee = m.type === 'tf' ? mFee(m) : 0, mem = m.type === 'tf' ? store.routeFee(m.wallet, m.to) : null;
       if (S.editId) { const t = store.updateTx(S.editId, rec); if (t) { if (t.type === 'tf') store.setFee(t.id, fee); markFresh([t]); } S.m = null; closeComposer(); refresh(); toast('Perubahan disimpan'); break; }
@@ -2445,7 +2752,7 @@ function onClick(e) {
       break;
     }
     case 'cloudSync': syncNow(true); break;
-    case 'cloudOut': sConfirm('Putuskan cadangan online?', 'Data di perangkat ini tetap ada. Cadangan di cloud juga tidak dihapus, dan Anda bisa menyambungkannya lagi kapan saja.', 'Putuskan', async () => { try { await cloud.signOut(); } catch {} ['cloudEmail', 'cloudLastSync'].forEach((k) => store.setSetting(k, '')); store.setSetting('cloudDirty', false); C.state = 'idle'; redrawCloudCard(); toast('Cadangan online diputuskan'); }); break;
+    case 'cloudOut': store.setSetting('partner', null); PT.links = []; PT.waiting = []; PT.ready = false; sConfirm('Putuskan cadangan online?', 'Data di perangkat ini tetap ada. Cadangan di cloud juga tidak dihapus, dan Anda bisa menyambungkannya lagi kapan saja.', 'Putuskan', async () => { try { await cloud.signOut(); } catch {} ['cloudEmail', 'cloudLastSync'].forEach((k) => store.setSetting(k, '')); store.setSetting('cloudDirty', false); C.state = 'idle'; redrawCloudCard(); toast('Cadangan online diputuskan'); }); break;
     case 'conflictCloud': closeSheet(); C.state = 'syncing'; applyCloud().then(() => { C.state = 'ok'; toast('Memakai data dari cloud'); runRecurring(); }).catch((e) => { C.state = 'error'; C.err = cloud.cloudError(e); }).finally(redrawCloudCard); break;
     case 'conflictLocal': closeSheet(); pushNow().then(() => { if (C.state === 'ok') toast('Data perangkat ini diunggah ke cloud'); runRecurring(); }); break;
     /* security + stories */
@@ -2469,6 +2776,7 @@ function onClick(e) {
     case 'stiAdd': { S.struk.form.items.push({ name: '', amount: 0 }); const sc = $('cobody').scrollTop; rerenderMode(); $('cobody').scrollTop = sc; later(60, () => $('sti-n-' + (S.struk.form.items.length - 1))?.focus()); break; }
     case 'saveStruk': {
       const f = S.struk.form; if (!f.amount) break;
+      if (f.split) { saveSplitStruk(f, el); break; }
       const items = f.items.filter((it) => it.name.trim() && it.amount > 0).map((it) => ({ name: it.name.trim(), amount: it.amount, ...(it.qty > 1 ? { qty: it.qty } : {}) }));
       const t = store.addTx({ date: f.date, type: 'out', cat: f.cat, sub: f.sub, amount: f.amount, wallet: f.wallet, to: null, note: (f.note || 'Belanja').trim(), ...(items.length ? { items } : {}) }); markFresh([t]);
       S.struk = { phase: 'idle' }; celebrate(rp(f.amount), 'out', el, `Struk tersimpan: ${rp(f.amount)}`); break;
@@ -2687,4 +2995,6 @@ export async function start() {
   setTimeout(() => { S.dispTotal = heroVal(); setOdo($('odo'), S.dispTotal); }, 450);
   setTimeout(() => app().classList.remove('boot'), 1600);
   maybeOfferRecon();
+  if (cloudOn()) setTimeout(() => partnerPoll(true), 3000);
+  setInterval(() => { if (!document.hidden) partnerPoll(); }, 60000);
 }

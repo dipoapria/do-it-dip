@@ -31,6 +31,10 @@ export interface Tx {
   feeOf?: string;
   /** A balance adjustment from the balance check ("Selisih saldo"): counted in totals, left out of "most spent" views. */
   adj?: boolean;
+  /** Shared bill: this is my part of `total`, paid by `n` people. */
+  split?: { total: number; n: number };
+  /** Sent by my partner from their shared bill (their name). */
+  from?: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -96,9 +100,13 @@ export interface Settings {
   reconSkip: string;
   reconAll: number;
   reconWeeks: string[];
+  /** The linked partner account (from the cloud), parts of shared bills waiting to be sent, inbox items handled here. */
+  partner: { id: string; name: string; email: string; link: string } | null;
+  outbox: { id: string; to: string; payload: unknown }[];
+  inboxDone: string[];
 }
 
-export const DEFAULT_SETTINGS: Settings = { name: '', onboarded: false, theme: 'system', lpLearned: false, pinHash: '', pinSalt: '', pinLen: 4, bioId: '', lockAfter: 60, cloudEmail: '', cloudLastSync: '', cloudDirty: false, budgets: {}, bookBudgets: {}, books: ['pribadi'], curBook: 'pribadi', receiptMode: 'ai', investTypes: ['saham', 'reksadana', 'obligasi', 'emas', 'deposito', 'kripto'], catEdits: {}, showBars: false, fixedKeys: [], subMap: {}, kwOff: [], histFrom: 0, feeRoutes: {}, recon: {}, reconLog: [], reconSkip: '', reconAll: 0, reconWeeks: [] };
+export const DEFAULT_SETTINGS: Settings = { name: '', onboarded: false, theme: 'system', lpLearned: false, pinHash: '', pinSalt: '', pinLen: 4, bioId: '', lockAfter: 60, cloudEmail: '', cloudLastSync: '', cloudDirty: false, budgets: {}, bookBudgets: {}, books: ['pribadi'], curBook: 'pribadi', receiptMode: 'ai', investTypes: ['saham', 'reksadana', 'obligasi', 'emas', 'deposito', 'kripto'], catEdits: {}, showBars: false, fixedKeys: [], subMap: {}, kwOff: [], histFrom: 0, feeRoutes: {}, recon: {}, reconLog: [], reconSkip: '', reconAll: 0, reconWeeks: [], partner: null, outbox: [], inboxDone: [] };
 
 import { DICT, DICT_INCOME } from './dict.ts';
 

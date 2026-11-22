@@ -38,6 +38,11 @@ const PROMPT = `You read a photo of an Indonesian shopping receipt. Return only 
     Only expand what the abbreviation clearly means; when unsure, keep that word as printed. Do not add the quantity.
   - qty: quantity as a number (a weight in kg such as 1.024 is allowed), or null when not printed.
   - price: the line total in rupiah for that product (quantity × unit price, before receipt-level discounts), integer.
+    Receipts print it in different ways; always return the LINE TOTAL here, never the price of one piece:
+    "INDOMIE GRG 5 x 3.500  17.500" → qty 5, unit 3500, price 17500; "2 @12.000 24.000" → qty 2, unit 12000, price 24000;
+    "AQUA 600ML 3 9.000" → qty 3, price 9000, unit 3000; a line showing only "5 x 3.500" with no total → price 17500.
+  - unit: the price of ONE piece in rupiah, integer: as printed (after "x" or "@"), otherwise price ÷ qty rounded.
+    null when qty is null or 1, or for a weighed product (kg).
   - Never list subtotal, total, tax, service, discount, payment, change, points, cashier or address lines as items.
 - discount: sum of all discounts (item discount lines such as DISC/potongan/hemat, and total discount), positive integer, 0 if none.
 - fees: charges added on top of the item prices (service, PB1/pajak restoran, ongkir, packaging), positive integer, 0 if none.
@@ -51,7 +56,7 @@ Rupiah amounts: "21,500", "21.500" and "Rp 21.500,00" all mean 21500. Read digit
 const SCHEMA = {
   type: 'OBJECT',
   properties: {
-    items: { type: 'ARRAY', items: { type: 'OBJECT', properties: { printed: { type: 'STRING' }, name: { type: 'STRING' }, qty: { type: 'NUMBER', nullable: true }, price: { type: 'INTEGER' } }, required: ['name', 'price'], propertyOrdering: ['printed', 'name', 'qty', 'price'] } },
+    items: { type: 'ARRAY', items: { type: 'OBJECT', properties: { printed: { type: 'STRING' }, name: { type: 'STRING' }, qty: { type: 'NUMBER', nullable: true }, unit: { type: 'INTEGER', nullable: true }, price: { type: 'INTEGER' } }, required: ['name', 'price'], propertyOrdering: ['printed', 'name', 'qty', 'unit', 'price'] } },
     discount: { type: 'INTEGER' },
     fees: { type: 'INTEGER' },
     total: { type: 'INTEGER', nullable: true },

@@ -84,3 +84,18 @@ Aplikasinya otomatis ter-update kalau ada perbaikan atau fitur baru.
   setelah ada contoh mutasinya.
 - **Buku keluarga bersama** belum dibuat. Akun yang terpisah ini adalah fondasinya. Nanti buku Keluarga bisa
   ditambahkan tanpa mengubah data pribadi masing-masing.
+
+## 6. Menghubungkan dua akun (bayar bersama)
+
+Agar bagian pasangan di struk bersama bisa dikirim langsung ke Do it Dip-nya, jalankan sekali:
+
+1. Supabase dashboard → **SQL Editor → New query** → tempel seluruh isi `supabase/setup-partner.sql` → **Run**.
+   Skrip ini membuat tabel `links` (undangan) dan `inbox` (kiriman) dengan Row Level Security: setiap akun hanya
+   melihat undangan dan kiriman miliknya sendiri. Aman dijalankan ulang.
+2. Perbarui fungsi `read-receipt` (langkah 3 di atas) dengan isi file terbaru. Versi ini juga membaca **harga per pcs**
+   (dipakai saat satu baris struk berisi beberapa pcs yang dibagi), jadi deploy ulang meskipun sudah pernah.
+3. Di HP Anda: **Lainnya → Pasangan** → ketik email akun pasangan → **Undang**.
+4. Pasangan membuka Do it Dip (sudah masuk ke Cadangan online) → muncul undangan → **Terima**.
+
+Setelah terhubung: saat struk bersama, ketuk label item sampai menjadi nama pasangan. Bagiannya muncul di aplikasi
+pasangan sebagai **Kiriman**, dan pasangan memilih dompet lalu **Terima** atau **Tolak**. Catatan lain tetap terpisah.

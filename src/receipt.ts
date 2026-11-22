@@ -7,7 +7,7 @@
 import { addDays } from './format.ts';
 import { amountsIn, findDate } from './money-text.ts';
 
-export interface ReceiptItem { name: string; amount: number; qty?: number; /** item number printed on the receipt (001, 002…) */ seq?: number; /** price confirmed by qty × unit price */ sure?: boolean }
+export interface ReceiptItem { name: string; amount: number; qty?: number; /** item number printed on the receipt (001, 002…) */ seq?: number; /** price confirmed by qty × unit price */ sure?: boolean; /** price of one piece */ unit?: number }
 export type Confidence = 'high' | 'medium' | 'low';
 export interface ReceiptResult {
   /** Shop, only used to suggest a category (never shown as an item or note). */

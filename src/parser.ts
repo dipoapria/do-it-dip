@@ -2,6 +2,7 @@
 import { addDays, pad, esc } from './format.ts';
 import { CATS, KW, KW_IN, kwBest, type TxType } from './model.ts';
 import { histHit, type HistHit } from './smart.ts';
+import { SPLIT_RE, splitCount } from './split.ts';
 
 export interface WalletAlias { id: string; aliases: string[] }
 export interface ParseCtx {
@@ -22,6 +23,8 @@ export interface Parsed {
   hist?: { word: string; n: number };
   /** Admin fee written in the sentence ("admin 2,5rb"); only used for transfers. */
   fee?: number;
+  /** "bagi 3": the amount is my share of `total`, split between `n` people. */
+  split?: { n: number; total: number };
 }
 
 const reEsc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -76,6 +79,9 @@ export function parseLine(raw: string, ctx: ParseCtx): Parsed {
   }
   found.sort((a, b) => a.idx - b.idx);
 
+  // "makan bareng 300rb bagi 3": the count of people is not an amount
+  const sm = t.match(SPLIT_RE), splitN = sm ? splitCount(sm) : 0;
+  if (sm && sm.index !== undefined && splitN) t = blank(t, sm.index, sm[0].length);
   // "admin 2,5rb" / "biaya 2500" / "fee 6.500": the admin fee of a transfer, taken out before reading the amount;
   // when it is the only number on the line ("admin bank 15rb" is an expense of its own) it is the amount instead
   const fm = t.match(FEE_RE), full = t;
@@ -97,6 +103,7 @@ export function parseLine(raw: string, ctx: ParseCtx): Parsed {
     if (!best || score > best.score || (score === best.score && v > best.v)) best = { v, score, assumed, s: mm2[0], idx: mm2.index };
   }
   if (best) { r.amount = Math.round(best.v); r.assumed = best.assumed; t = blank(t, best.idx, best.s.length); }
+  const splitTotal = splitN && r.amount ? r.amount : 0;
 
   if (TF_WORDS.test(t) && (found.length >= 2 || (found.length === 1 && TF_ONE.test(t)))) {
     r.type = 'tf';
@@ -139,6 +146,7 @@ export function parseLine(raw: string, ctx: ParseCtx): Parsed {
   if (!CATS[hit.cat].subs.includes(hit.sub)) hit.sub = CATS[hit.cat].subs[0];
   r.cat = hit.cat; r.sub = hit.sub; r.type = CATS[r.cat]?.inc ? 'in' : 'out';
   delete r.fee;
+  if (splitTotal && r.type === 'out') { r.split = { n: splitN, total: splitTotal }; r.amount = Math.round(splitTotal / splitN); }
   if (!found.length) r.wallet = r.type === 'in' ? ctx.defaults.bank : ctx.defaults.cash;
   const note = t.replace(STOP, ' ').replace(/[^a-z0-9&\- ]/g, ' ').replace(/\s+/g, ' ').trim();
   r.note = note ? note.charAt(0).toUpperCase() + note.slice(1) : (r.sub || '');
