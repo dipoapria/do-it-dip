@@ -509,6 +509,7 @@ function vLainnya() {
   ${rulesCardHTML()}
   ${cloudCardHTML()}
   <div class="card pt-card" id="ptCard">${ptInner()}</div>
+  ${location.hostname === 'localhost' ? `<div class="card" id="fxDemo"><h4>Demo animasi <span class="status warn">hanya di server uji</span></h4><div class="btn-row"><button class="btn2" data-a="fxDemo" data-v="in"><i data-lucide="mail"></i>Terima</button><button class="btn2" data-a="fxDemo" data-v="out"><i data-lucide="send"></i>Kirim</button><button class="btn2" data-a="fxDemo" data-v="invite"><i data-lucide="heart"></i>Undangan</button></div></div>` : ''}
   <div class="card"><h4>Cadangan manual <span class="status">${S.persisted ? 'Penyimpanan permanen aktif' : 'Di perangkat ini'}</span></h4>
     <p class="about" style="margin:0 0 4px">File cadangan (.json) bisa disimpan di Files atau Google Drive dan dipulihkan di perangkat mana pun.</p>
     <div class="btn-row"><button class="btn2" data-a="backup"><i data-lucide="download"></i>Ekspor cadangan</button><button class="btn2" data-a="restore"><i data-lucide="upload"></i>Pulihkan dari file</button></div>
@@ -1497,7 +1498,7 @@ const PT = { me: '', email: '', links: [], waiting: [], sent: [], err: '', ready
 function sendPart(payload, el) {
   const p = partner(); if (!p) return false;
   store.setSetting('outbox', [...(store.data.settings.outbox || []), { id: 'o-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), to: p.id, payload }]);
-  planeOut(el); flushOutbox().then(() => partnerPoll(true));
+  planeOut(el, `Terkirim ke ${esc(pName())} · ${rp(payload.amount || 0)}`); flushOutbox().then(() => partnerPoll(true));
   return true;
 }
 async function flushOutbox() {
@@ -1537,9 +1538,9 @@ function ptAttention(n = 0) {
   const fresh = PT.waiting.filter((x) => !PT.shown.has(x.id));
   if (!inv && !fresh.length) return;
   if (!ptIdle()) { if (n < 30) setTimeout(() => ptAttention(n + 1), 2000); return; }
-  if (inv) { PT.invited.add(inv.id); sInvite(inv); return; }
+  if (inv) { PT.invited.add(inv.id); inviteFx(inv, () => sInvite(inv)); return; }
   fresh.forEach((x) => PT.shown.add(x.id));
-  planeIn(() => sInbox());
+  planeIn(fresh[0], () => sInbox());
 }
 function inboxBtnHTML() {
   const n = PT.waiting.length; if (!n) return '';
@@ -1613,32 +1614,120 @@ function ibAnswer(status, el) {
   setTimeout(() => { refresh(); ptRefreshBits(); if (PT.waiting.length) sInbox(); else closeSheet(); }, reduced() ? 0 : 420);
   toast(status === 'done' ? `Dicatat: ${rp(p.amount || 0)} dari ${from}` : 'Kiriman ditolak');
 }
-/* paper planes */
-function planeTrail(fly, ms) {
-  const ph = app(), a = ph.getBoundingClientRect(), t0 = performance.now();
-  const tick = () => {
-    const pl = fly.querySelector('.pl'); if (!pl || performance.now() - t0 > ms) return;
-    const r = pl.getBoundingClientRect(), d = document.createElement('span'); d.className = 'pl-dot';
-    d.style.left = r.left - a.left + r.width / 2 + 'px'; d.style.top = r.top - a.top + r.height / 2 + 'px'; ph.appendChild(d); setTimeout(() => d.remove(), 700);
-    setTimeout(() => requestAnimationFrame(tick), 45);
+/* paper planes: short scenes over a sky (tap anywhere to skip) */
+const PLANE_SVG = '<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M62 32 L4 7 L19 32 Z" fill="#fff"/><path d="M62 32 L19 32 L4 57 Z" fill="#FBCFE8"/><path d="M62 32 L19 32 L27 42 Z" fill="#F472B6"/></svg>';
+/** A sheet of paper that folds itself into the plane: the same three pieces move from sheet to wings. */
+const foldAnim = (from, mid, to, dur) => `<animate attributeName="points" values="${from};${mid};${to}" keyTimes="0;.5;1" calcMode="spline" keySplines=".55 0 .35 1;.4 0 .2 1" dur="${dur}ms" begin="indefinite" fill="freeze"/>`;
+const foldFill = (vals, dur) => `<animate attributeName="fill" values="${vals}" keyTimes="0;.5;1" dur="${dur}ms" begin="indefinite" fill="freeze"/>`;
+function foldSVG(dur = 720) {
+  return `<svg viewBox="0 0 64 64" aria-hidden="true" class="fold">
+    <polygon points="10,6 54,6 54,58 10,58" fill="#fff"><animate attributeName="opacity" values="1;.7;0;0" keyTimes="0;.4;.7;1" dur="${dur}ms" begin="indefinite" fill="freeze"/></polygon>
+    <polygon points="54,6 10,6 32,32" fill="#fff">${foldAnim('54,6 10,6 32,32', '58,18 8,9 26,32', '62,32 4,7 19,32', dur)}</polygon>
+    <polygon points="54,58 32,32 10,58" fill="#fff">${foldAnim('54,58 32,32 10,58', '58,46 26,32 8,55', '62,32 19,32 4,57', dur)}${foldFill('#fff;#FDF2F8;#FBCFE8', dur)}</polygon>
+    <polygon points="54,6 32,32 54,58" fill="#fff">${foldAnim('54,6 32,32 54,58', '60,26 24,32 44,46', '62,32 19,32 27,42', dur)}${foldFill('#fff;#FCE7F3;#F472B6', dur)}</polygon></svg>`;
+}
+const smooth = (x) => { const v = Math.max(0, Math.min(1, x)); return v * v * (3 - 2 * v); };
+function bezPts(p0, p1, p2, p3, n = 28) {
+  const o = [];
+  for (let i = 0; i <= n; i++) { const t = i / n, u = 1 - t; o.push([u * u * u * p0[0] + 3 * u * u * t * p1[0] + 3 * u * t * t * p2[0] + t * t * t * p3[0], u * u * u * p0[1] + 3 * u * u * t * p1[1] + 3 * u * t * t * p2[1] + t * t * t * p3[1]]); }
+  return o;
+}
+/** A full loop-the-loop starting and ending at the bottom of the circle: right, up, over the top, back down. */
+function loopPts(cx, cy, r, n = 40) {
+  return Array.from({ length: n + 1 }, (_, i) => [cx + r * Math.sin((i / n) * Math.PI * 2), cy + r * Math.cos((i / n) * Math.PI * 2)]);
+}
+/**
+ * Fly `el` along the points and draw the trail in step. Speed follows `speed(k)` (k = share of the path flown) and
+ * gravity: slower while climbing, faster while diving, so the loop feels real. The heading is smoothed and never
+ * jumps, also through the top of the loop.
+ */
+function flyAlong(el, path, pts, o) {
+  const n = pts.length, d = [0];
+  for (let i = 1; i < n; i++) d.push(d[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+  const L = d[n - 1] || 1, sc = o.scale || (() => 1), speed = o.speed || (() => 1), g = o.gravity ?? 0.38;
+  const raw = pts.map((_, i) => { const a = pts[Math.min(i + 2, n - 1)], b = pts[Math.max(i - 2, 0)]; return Math.atan2(a[1] - b[1], a[0] - b[0]) * 180 / Math.PI; });
+  const ang = [raw[0]];
+  for (let i = 1; i < n; i++) { let x = raw[i]; while (x - ang[i - 1] > 180) x -= 360; while (x - ang[i - 1] < -180) x += 360; ang.push(x); }
+  const t = [0];
+  for (let i = 1; i < n; i++) { const ds = d[i] - d[i - 1] || 0.001, dy = (pts[i][1] - pts[i - 1][1]) / ds; t.push(t[i - 1] + ds / Math.max(0.08, speed(d[i] / L) * (1 + g * dy))); }
+  const T = t[n - 1] || 1, opt = { duration: o.duration, delay: o.delay || 0, easing: 'linear', fill: 'both' };
+  el.animate(pts.map((p, i) => ({ transform: `translate(${p[0]}px,${p[1]}px) rotate(${ang[i]}deg) scale(${sc(d[i] / L)})`, offset: t[i] / T })), opt);
+  if (path) {
+    path.setAttribute('d', 'M' + pts.map((p) => p.map((v) => v.toFixed(1)).join(' ')).join(' L'));
+    path.style.strokeDasharray = `${L}`;
+    path.animate(pts.map((_, i) => ({ strokeDashoffset: L - d[i], offset: t[i] / T })), opt);
+  }
+}
+function skyScene(kind, total, done) {
+  const ph = app(), W = ph.clientWidth, H = ph.clientHeight;
+  const sc = document.createElement('div'); sc.className = 'sky ' + kind; sc.style.setProperty('--total', total + 'ms');
+  const stars = kind !== 'none' ? Array.from({ length: 28 }, () => `<i class="star" style="left:${(Math.random() * 100).toFixed(1)}%;top:${(Math.random() * 55).toFixed(1)}%;--d:${(Math.random() * 1.6).toFixed(2)}s;--s:${(1.5 + Math.random() * 2.5).toFixed(1)}px"></i>`).join('') : '';
+  const clouds = [[18, 150, 7], [44, 110, 9], [70, 190, 6.5], [30, 80, 11]].map(([top, w, t], i) => `<i class="cloud" style="top:${top}%;--w:${w}px;--t:${t}s;--d:${-i * 1.7}s"></i>`).join('');
+  sc.innerHTML = `<div class="sky-bg"></div>${stars}${clouds}<svg class="sky-trail" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"><path/></svg><div class="sky-stage"></div><div class="sky-cap"></div><div class="sky-skip">Ketuk untuk lewati</div>`;
+  ph.appendChild(sc);
+  let over = false;
+  const timers = [];
+  const end = (instant) => {
+    if (over) return; over = true; timers.forEach(clearTimeout);
+    if (instant) { sc.remove(); done?.(); return; }
+    sc.classList.add('bye'); setTimeout(() => { sc.remove(); done?.(); }, 480);
   };
-  requestAnimationFrame(tick);
+  sc.addEventListener('click', (e) => { e.stopPropagation(); end(true); });
+  const at = (ms, fn) => timers.push(setTimeout(() => { if (!over) fn(); }, ms));
+  at(total - 480, () => end(false));
+  return { sc, W, H, at, stage: sc.querySelector('.sky-stage'), trail: sc.querySelector('.sky-trail path'), cap: sc.querySelector('.sky-cap') };
 }
-function planeIn(done) {
+const buzz = (p) => { try { navigator.vibrate?.(p); } catch { /* not supported */ } };
+function sparkle(sc, x, y, n = 26, cols = ['#FDE68A', '#F9A8D4', '#fff', '#A5F3FC', '#C4B5FD']) {
+  for (let i = 0; i < n; i++) {
+    const s = document.createElement('i'), a = (i / n) * Math.PI * 2 + Math.random() * 0.4, r = 70 + Math.random() * 90;
+    s.className = 'spark' + (i % 3 ? '' : ' star4');
+    s.style.cssText = `left:${x}px;top:${y}px;--x:${Math.cos(a) * r}px;--y:${Math.sin(a) * r}px;background:${cols[i % cols.length]};animation-delay:${Math.random() * 120}ms`;
+    sc.appendChild(s); setTimeout(() => s.remove(), 1400);
+  }
+}
+/** Something from my partner arrives: night sky, the plane loops in and dives into an envelope that opens. */
+function planeIn(row, done) {
+  const p = row?.payload || {}, from = row?.from_name || pName();
   if (reduced()) { done(); return; }
-  const f = document.createElement('div'); f.className = 'plane-fly in';
-  f.innerHTML = '<div class="pl"><i data-lucide="send"></i></div><div class="pl-env"><i data-lucide="mail"></i><span class="pl-ring"></span></div>';
-  app().appendChild(f); icons(); planeTrail(f, 1200);
-  setTimeout(() => { f.remove(); done(); }, 1750);
+  const T = 5000, s = skyScene('in', T, done), { W, H } = s, cx = W / 2, ey = H * 0.5;
+  s.stage.innerHTML = `<div class="sky-plane">${PLANE_SVG}</div>
+    <div class="sky-env" style="left:${cx}px;top:${ey}px"><div class="env-back"></div><div class="env-letter"><small>Kiriman</small><b class="m">${rp(p.amount || 0)}</b><span>dari ${esc(from)}</span></div><div class="env-front"></div><div class="env-flap"></div></div>`;
+  const lx = W * 0.5, ly = H * 0.3, lr = Math.min(70, W * 0.17);
+  const pts = [
+    ...bezPts([-70, H * 0.12], [W * 0.3, H * 0.02], [W * 0.1, ly + 6], [lx, ly]),
+    ...loopPts(lx, ly - lr, lr).slice(1),
+    ...bezPts([lx, ly], [W * 0.85, ly + 6], [W * 0.8, ey - 40], [cx, ey - 8]).slice(1),
+  ];
+  flyAlong(s.stage.querySelector('.sky-plane'), s.trail, pts, { duration: 2900, delay: 350, speed: (k) => 1.25 - 0.25 * smooth(k / 0.2) - 0.72 * smooth((k - 0.78) / 0.22), scale: (k) => (k < 0.9 ? 0.75 + k * 0.4 : Math.max(0.05, 1.11 - (k - 0.9) * 10)) });
+  s.cap.innerHTML = `<i data-lucide="send"></i>Kiriman dari <b>${esc(from)}</b> sedang terbang…`; icons();
+  s.at(3250, () => { buzz([18, 40, 18]); s.sc.classList.add('opened'); s.cap.innerHTML = `<b>${esc(from)}</b> mengirim bagianmu`; });
+  s.at(3650, () => { sparkle(s.sc, cx, ey - 30, 30); buzz(12); });
 }
-function planeOut(el) {
+/** I send something: a sheet of paper folds into a plane, loops once and disappears into the sky. */
+function planeOut(el, caption) {
   if (reduced()) return;
   const ph = app(), a = ph.getBoundingClientRect(), r = (el && el.getBoundingClientRect && el.getBoundingClientRect()) || { left: a.left + a.width / 2, top: a.top + a.height * 0.8, width: 0, height: 0 };
-  const f = document.createElement('div'); f.className = 'plane-fly out';
-  f.style.setProperty('--x', r.left - a.left + r.width / 2 + 'px'); f.style.setProperty('--y', r.top - a.top + r.height / 2 + 'px');
-  f.innerHTML = '<div class="pl"><i data-lucide="send"></i></div>';
-  ph.appendChild(f); icons(); planeTrail(f, 1100);
-  setTimeout(() => f.remove(), 1400);
+  const T = 3700, s = skyScene('out', T), { W, H } = s, x0 = Math.min(W - 40, Math.max(40, r.left - a.left + r.width / 2)), y0 = Math.min(H - 60, r.top - a.top + r.height / 2);
+  s.stage.innerHTML = `<div class="sky-plane folding">${foldSVG(720)}</div>`;
+  requestAnimationFrame(() => s.stage.querySelectorAll('animate').forEach((x) => x.beginElement?.()));
+  const lx = W * 0.45, ly = Math.min(H * 0.45, y0 - 60), lr = Math.min(64, W * 0.16);
+  const pts = [
+    ...bezPts([x0, y0], [x0, y0 - 80], [W * 0.12, ly + 10], [lx, ly]),
+    ...loopPts(lx, ly - lr, lr).slice(1),
+    ...bezPts([lx, ly], [W * 0.75, ly + 4], [W * 0.82, H * 0.14], [W + 80, -90]).slice(1),
+  ];
+  flyAlong(s.stage.querySelector('.sky-plane'), s.trail, pts, { duration: 2400, delay: 820, speed: (k) => 0.16 + 0.84 * smooth(k / 0.24) + 0.7 * smooth((k - 0.72) / 0.28), scale: (k) => (k < 0.04 ? 1 + k * 2.5 : k < 0.72 ? 1.1 - (k - 0.04) * 0.15 : 1 - (k - 0.72) * 2.6) });
+  s.at(760, () => buzz(14));
+  s.at(2800, () => { s.sc.classList.add('sent'); s.cap.innerHTML = `<i data-lucide="check"></i>${caption || 'Terkirim'}`; icons(); sparkle(s.sc, W - 60, 70, 18, ['#fff', '#FDE68A', '#F9A8D4']); });
+}
+/** An invitation: two avatars glide together and a heart pops between them. */
+function inviteFx(l, done) {
+  if (reduced()) { done(); return; }
+  const s = skyScene('inv', 2700, done), { W, H } = s, who = l.from_name || l.from_email;
+  s.stage.innerHTML = `<div class="inv-row" style="top:${H * 0.42}px"><span class="pt-av inv-l">${initial(who)}</span><span class="inv-heart"><i data-lucide="heart"></i></span><span class="pt-av pa inv-r">${initial(store.data.settings.name)}</span></div>`;
+  s.cap.innerHTML = `<b>${esc(who)}</b> mengajak terhubung`; icons();
+  s.at(1000, () => { buzz([15, 60, 25]); sparkle(s.sc, W / 2, H * 0.42, 34, ['#F9A8D4', '#F472B6', '#fff', '#FDE68A']); });
 }
 
 /* ================= balance check ("Cocokkan saldo") ================= */
@@ -2615,6 +2704,7 @@ function onClick(e) {
       });
       break;
     }
+    case 'fxDemo': if (location.hostname === 'localhost') window.__dipFx?.[d.v]?.(); break;
     /* shared bills */
     case 'spToggle': { const f = S.struk.form; f.split = f.split ? null : newSplit(); spRedraw('st'); break; }
     case 'spN': { const sp = spOf(d.c); sp.n = Math.max(2, Math.min(20, sp.n + Number(d.d))); spRedraw(d.c); break; }
@@ -2995,6 +3085,7 @@ export async function start() {
   setTimeout(() => { S.dispTotal = heroVal(); setOdo($('odo'), S.dispTotal); }, 450);
   setTimeout(() => app().classList.remove('boot'), 1600);
   maybeOfferRecon();
+  if (location.hostname === 'localhost') window.__dipFx = { in: () => planeIn({ from_name: 'Nadia', payload: { amount: 60500 } }, () => {}), out: () => planeOut(null, 'Terkirim ke Nadia · Rp60.500'), invite: () => inviteFx({ from_name: 'Nadia', from_email: 'n@contoh.com' }, () => {}) };
   if (cloudOn()) setTimeout(() => partnerPoll(true), 3000);
   setInterval(() => { if (!document.hidden) partnerPoll(); }, 60000);
 }
