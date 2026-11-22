@@ -24,6 +24,7 @@ export function stats(txs: Tx[], mk: string, maxDay = 0): MonthStats {
       st.bySub[sk] = (st.bySub[sk] || 0) + t.amount;
       st.byDay[t.date] = (st.byDay[t.date] || 0) + t.amount;
       if (t.fixed) st.fixed += t.amount;
+      else if (t.adj) { /* balance adjustment: in the totals, not a spending habit */ }
       else { st.byDayFlex[t.date] = (st.byDayFlex[t.date] || 0) + t.amount; st.byCatFlex[t.cat] = (st.byCatFlex[t.cat] || 0) + t.amount; }
     }
   }

@@ -25,7 +25,7 @@ export function buildHistory(txs: Tx[], since: number): Record<string, HistHit> 
   if (!since) return out;
   const counts: Record<string, Record<string, number>> = {};
   for (const t of txs) {
-    if (t.type === 'tf' || !t.cat || !t.sub || t.debt || t.inv || t.rec || (t.createdAt || 0) < since) continue;
+    if (t.type === 'tf' || !t.cat || !t.sub || t.debt || t.inv || t.rec || t.feeOf || (t.createdAt || 0) < since) continue;
     const key = t.cat + '|' + t.sub;
     for (const w of noteTokens(t.note)) (counts[w] ||= {})[key] = (counts[w][key] || 0) + 1;
   }

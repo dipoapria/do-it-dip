@@ -20,6 +20,8 @@ export interface Parsed {
   date: string; note: string; learned: boolean;
   /** Guessed from the person's history: the word and how often it was saved there. */
   hist?: { word: string; n: number };
+  /** Admin fee written in the sentence ("admin 2,5rb"); only used for transfers. */
+  fee?: number;
 }
 
 const reEsc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -30,6 +32,14 @@ export function walletSource(w: WalletAlias): string {
 
 export const DATE_RE = /\b(\d{1,2} ?hari (yang )?lalu|kemarin|kemaren|kmrn|kmarin|(tgl|tanggal) ?\d{1,2}|hari ini|tadi( pagi| siang| sore| malam)?|barusan)\b/;
 export const AMT_RE = /(?:rp\.? ?)?(\d+(?:[.,]\d+)*) ?(ribu|rbu|rb|k|juta|jt|jeti)?(?![a-z0-9])/;
+/** "admin 2,5rb", "biaya admin 2500", "+ admin 6.500", "fee 1rb": a transfer's admin fee. */
+const FEE_RE = /(?:\+\s*)?\b(biaya admin|biaya transfer|biaya|admin|adm|fee)\s*(?:nya)?\s*(?:rp\.?\s*)?(\d+(?:[.,]\d+)*)\s*(ribu|rbu|rb|k)?(?![a-z0-9])/;
+/** A fee is small: "2,5" and "3" mean thousands, "500" means Rp500, "2500" means Rp2.500. */
+function feeValue(num: string, suf: string): number {
+  if (suf) return Math.round(decNum(num) * 1e3);
+  if (/[.,]\d{3}$/.test(num) || /^\d+$/.test(num)) { const v = parseFloat(num.replace(/[.,]/g, '')); return v < 100 ? v * 1000 : v; }
+  return Math.round(decNum(num) * 1e3);
+}
 const STOP = /\b(pakai|pake|pakek|via|lewat|dari|ke|dengan|dgn|bayar|byr|buat|untuk|utk|beli|masuk|sebesar|seharga|harga|di|rp|transfer|tf|topup|top up|isi saldo|isi|saldo|tarik|pindah|uang|duit)\b/g;
 const TF_WORDS = /\b(transfer|tf|pindah|top ?up|topup|isi saldo|isi|tarik tunai|tarik|nabung|tabungan)\b/;
 const TF_ONE = /\b(top ?up|topup|isi|tarik|nabung|tabungan)\b/;
@@ -66,6 +76,11 @@ export function parseLine(raw: string, ctx: ParseCtx): Parsed {
   }
   found.sort((a, b) => a.idx - b.idx);
 
+  // "admin 2,5rb" / "biaya 2500" / "fee 6.500": the admin fee of a transfer, taken out before reading the amount;
+  // when it is the only number on the line ("admin bank 15rb" is an expense of its own) it is the amount instead
+  const fm = t.match(FEE_RE), full = t;
+  if (fm && fm.index !== undefined) { r.fee = feeValue(fm[2], fm[3] || ''); t = blank(t, fm.index, fm[0].length); if (!/\d/.test(t)) { t = full; delete r.fee; } }
+
   const re = new RegExp(AMT_RE.source, 'g');
   let best: { v: number; score: number; assumed: boolean; s: string; idx: number } | null = null;
   let mm2: RegExpExecArray | null;
@@ -95,6 +110,7 @@ export function parseLine(raw: string, ctx: ParseCtx): Parsed {
       r.to = other ? other.id : r.to;
     }
     // The UI turns 'Transfer' into a friendly note with wallet names ("Isi saldo GoPay").
+    if (r.fee !== undefined && !(r.fee > 0)) delete r.fee;
     r.note = /\btarik\b/.test(raw.toLowerCase()) ? 'Tarik tunai' : /\b(nabung|tabungan)\b/.test(raw.toLowerCase()) ? 'Tabungan' : 'Transfer';
     return r;
   }
@@ -122,6 +138,7 @@ export function parseLine(raw: string, ctx: ParseCtx): Parsed {
   // the user may have removed or replaced that subcategory
   if (!CATS[hit.cat].subs.includes(hit.sub)) hit.sub = CATS[hit.cat].subs[0];
   r.cat = hit.cat; r.sub = hit.sub; r.type = CATS[r.cat]?.inc ? 'in' : 'out';
+  delete r.fee;
   if (!found.length) r.wallet = r.type === 'in' ? ctx.defaults.bank : ctx.defaults.cash;
   const note = t.replace(STOP, ' ').replace(/[^a-z0-9&\- ]/g, ' ').replace(/\s+/g, ' ').trim();
   r.note = note ? note.charAt(0).toUpperCase() + note.slice(1) : (r.sub || '');

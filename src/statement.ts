@@ -213,7 +213,10 @@ export function guessRow(row: StmtRow, ctx: GuessCtx): Guess {
     const b = kwBest(t, KW_IN); if (b) return { type: 'in', cat: b.cat, sub: b.sub, to: null, note };
     return { type: 'in', cat: 'masuk_lain', sub: 'Lainnya', to: null, note };
   }
-  if (/\b(biaya adm|biaya administrasi|adm(in)? bulanan|admin|pajak|materai|bea|biaya kartu|iuran kartu|provisi)\b/.test(t)) return { type: 'out', cat: 'lain', sub: 'Biaya bank', to: null, note };
+  if (/\b(biaya (transfer|trf|tf|antar bank|skn|rtgs)|bi[ -]?fast|fee (transfer|trf)|transfer fee|trf fee)\b/.test(t)) return { type: 'out', cat: 'biaya', sub: 'Biaya transfer', to: null, note };
+  if (/\b(biaya top ?up|topup fee|top up fee)\b/.test(t)) return { type: 'out', cat: 'biaya', sub: 'Biaya top up', to: null, note };
+  if (/\b(biaya adm|biaya administrasi|adm(in)? bulanan|biaya kartu|iuran kartu)\b/.test(t)) return { type: 'out', cat: 'biaya', sub: 'Admin bulanan', to: null, note };
+  if (/\b(admin|pajak|materai|bea|provisi)\b/.test(t)) return { type: 'out', cat: 'biaya', sub: 'Biaya lain', to: null, note };
   { const b = kwBest(t, KW); if (b) return { type: 'out', cat: b.cat, sub: b.sub, to: null, note }; }
   return { type: 'out', cat: 'lain', sub: 'Lainnya', to: null, note };
 }

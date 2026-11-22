@@ -18,7 +18,7 @@ export function monthGrid(mk: string): (string | null)[][] {
   return weeks;
 }
 
-export interface DayTotal { inc: number; out: number; n: number; /** fixed expenses within out */ fixed: number }
+export interface DayTotal { inc: number; out: number; n: number; /** fixed expenses within out */ fixed: number; /** balance adjustments within out */ adj?: number }
 /**
  * Money in and out per day of a month. Same rules as the monthly recap: transfers (including debt and investment
  * moves) are neither income nor expense, but they still count as a record of that day.
@@ -30,7 +30,7 @@ export function dayTotals(txs: Tx[], mk: string): Record<string, DayTotal> {
     const d = (out[t.date] ||= { inc: 0, out: 0, n: 0, fixed: 0 });
     d.n++;
     if (t.type === 'in') d.inc += t.amount;
-    else if (t.type === 'out' && t.cat) { d.out += t.amount; if (t.fixed) d.fixed += t.amount; }
+    else if (t.type === 'out' && t.cat) { d.out += t.amount; if (t.fixed) d.fixed += t.amount; else if (t.adj) d.adj = (d.adj || 0) + t.amount; }
   }
   return out;
 }
@@ -38,7 +38,7 @@ export function dayTotals(txs: Tx[], mk: string): Record<string, DayTotal> {
 /** The day with the most spending, fixed expenses left out (null if nothing else was spent). */
 export function topDay(totals: Record<string, DayTotal>): string | null {
   let best: string | null = null, v = 0;
-  for (const [d, x] of Object.entries(totals)) if (x.out - x.fixed > v) { v = x.out - x.fixed; best = d; }
+  for (const [d, x] of Object.entries(totals)) if (x.out - x.fixed - (x.adj || 0) > v) { v = x.out - x.fixed - (x.adj || 0); best = d; }
   return best;
 }
 

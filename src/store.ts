@@ -1,7 +1,7 @@
 // Local storage on the device (IndexedDB via Dexie). The UI reads the in-memory `data`;
 // every change is written to memory first (instant UI) and then persisted.
 import Dexie, { type Table } from 'dexie';
-import { applyCatEdits, applyDict, BASE_CATS, CATS, DEFAULT_SETTINGS, DICT_NOW, NEW_BASE_SUBS, type CatEdit, type Settings, type Tx, type Wallet } from './model.ts';
+import { applyCatEdits, applyDict, BASE_CATS, CATS, DEFAULT_SETTINGS, DICT_NOW, feeSub, NEW_BASE_SUBS, routeKey, type CatEdit, type Settings, type Tx, type Wallet } from './model.ts';
 import type { Rule } from './recurring.ts';
 import { fixedMatch, learnKey } from './parser.ts';
 import type { Debt, Goal } from './plan.ts';
@@ -75,6 +75,7 @@ export async function load(): Promise<void> {
   data.learned = Object.fromEntries(l.map((x) => [x.word, { cat: x.cat, sub: x.sub }]));
   data.settings = { ...DEFAULT_SETTINGS, ...Object.fromEntries(s.map((x) => [x.key, x.value])) } as Settings;
   if (!s.some((x) => x.key === 'subMap')) migrateSubs();
+  if (!s.some((x) => x.key === 'feeRoutes')) migrateFees();
   applyCatEdits(data.settings.catEdits);
   applyDict(data.settings.subMap, data.settings.kwOff);
   revision++;
@@ -104,6 +105,26 @@ function migrateSubs(): void {
   put('histFrom', Date.now());
 }
 
+/**
+ * Once, when transfer fees arrive: "Lainnya · Biaya bank" moves into the new "Biaya & admin" category
+ * (monthly account fees to "Admin bulanan", everything else to "Biaya lain").
+ */
+function migrateFees(): void {
+  const st = data.settings, monthly = /admin bulanan|adm bulanan|biaya adm|administrasi|biaya kartu|iuran kartu|biaya rekening/i;
+  const where = (note: string) => (monthly.test(note || '') ? 'Admin bulanan' : 'Biaya lain');
+  const txs = data.txs.filter((t) => t.cat === 'lain' && t.sub === 'Biaya bank');
+  txs.forEach((t) => { t.cat = 'biaya'; t.sub = where(t.note); });
+  if (txs.length) db.tx.bulkPut(txs).catch(fail);
+  for (const r of data.rules) if (r.cat === 'lain' && r.sub === 'Biaya bank') { r.cat = 'biaya'; r.sub = where(r.note); db.rules.put(r).catch(fail); }
+  for (const [w, v] of Object.entries(data.learned)) if (v.cat === 'lain' && v.sub === 'Biaya bank') { v.cat = 'biaya'; v.sub = where(w); db.learned.put({ word: w, ...v }).catch(fail); }
+  const edits: Record<string, CatEdit> = JSON.parse(JSON.stringify(st.catEdits || {}));
+  if (edits.lain?.subs) { edits.lain.subs = edits.lain.subs.filter((x) => x !== 'Biaya bank'); if (!edits.lain.subs.length || edits.lain.subs.join('|') === 'Lainnya') delete edits.lain.subs; if (!Object.keys(edits.lain).length) delete edits.lain; }
+  const put = (key: keyof Settings, value: unknown) => { (st as unknown as Record<string, unknown>)[key] = value; db.settings.put({ key, value }).catch(fail); };
+  put('catEdits', edits);
+  put('subMap', { ...(st.subMap || {}), 'lain|Biaya bank': 'biaya|Biaya lain' });
+  put('feeRoutes', {});
+}
+
 /** Ask the browser not to evict our data (important on iPhone). */
 export async function requestPersist(): Promise<boolean> {
   try { return (await navigator.storage?.persist?.()) ?? false; } catch { return false; }
@@ -125,20 +146,70 @@ export function updateTx(id: string, patch: Partial<Tx>): Tx | undefined {
   if (!t) return;
   Object.assign(t, patch, { updatedAt: Date.now() });
   db.tx.put(t).catch(fail);
+  // its admin fee follows the transfer (wallet, date, book), or goes when it is no longer a transfer
+  const fee = data.txs.find((x) => x.feeOf === id);
+  if (fee) { if (t.type !== 'tf') removeTx(fee.id); else { Object.assign(fee, { wallet: t.wallet, date: t.date, book: t.book, sub: feeSub(walletGroup(t.to)), updatedAt: Date.now() }); db.tx.put(fee).catch(fail); } }
   changed();
   return t;
 }
-export function deleteTx(id: string): Tx | undefined {
+const walletGroup = (id: string | null) => data.wallets.find((w) => w.id === id)?.group;
+function removeTx(id: string): Tx | undefined {
   const i = data.txs.findIndex((x) => x.id === id);
   if (i < 0) return;
   const [t] = data.txs.splice(i, 1);
   db.tx.delete(id).catch(fail);
+  return t;
+}
+/** Admin fee of a transfer (0 when none). */
+export const feeOf = (id: string): number => data.txs.find((x) => x.feeOf === id)?.amount || 0;
+/**
+ * Set a transfer's admin fee: an expense in "Biaya & admin" from the same wallet on the same day, tied to the
+ * transfer. 0 removes it.
+ */
+export function setFee(tfId: string, fee: number): void {
+  const tf = data.txs.find((x) => x.id === tfId), cur = data.txs.find((x) => x.feeOf === tfId);
+  if (!tf || tf.type !== 'tf') return;
+  const amount = Math.max(0, Math.round(fee || 0));
+  if (!amount) { if (cur) { removeTx(cur.id); changed(); } return; }
+  const fields = { amount, wallet: tf.wallet, date: tf.date, book: tf.book, sub: feeSub(walletGroup(tf.to)), note: 'Biaya admin · ' + tf.note };
+  if (cur) { Object.assign(cur, fields, { updatedAt: Date.now() }); db.tx.put(cur).catch(fail); changed(); }
+  else addTx({ ...fields, type: 'out', cat: 'biaya', to: null, feeOf: tfId });
+}
+/* ---------- balance check ---------- */
+/** Note one wallet's check: the balance in the app, the real one, and how it ended. */
+export function logCheck(wallet: string, app: number, real: number, kind: 'same' | 'adj' | 'found'): void {
+  const at = Date.now(), gap = real - app;
+  data.settings.recon = { ...(data.settings.recon || {}), [wallet]: { at, real, gap: kind === 'adj' ? gap : 0 } };
+  db.settings.put({ key: 'recon', value: data.settings.recon }).catch(fail);
+  setSetting('reconLog', [...(data.settings.reconLog || []), { at, wallet, app, real, gap: kind === 'adj' ? gap : 0, kind }].slice(-400));
+}
+/** A full check finished (weekly or by hand); `week` = the Sunday key when it counts as that week's check. */
+export function finishCheck(week: string | null): void {
+  setSetting('reconAll', Date.now());
+  if (week) setSetting('reconWeeks', Array.from(new Set([...(data.settings.reconWeeks || []), week])).slice(-120));
+}
+
+/** Remember the usual admin fee of a route (filled in by itself next time). */
+export function rememberFee(from: string, to: string, fee: number): void {
+  const r = { ...(data.settings.feeRoutes || {}) }, k = routeKey(from, to);
+  if (fee > 0) r[k] = Math.round(fee); else delete r[k];
+  setSetting('feeRoutes', r);
+}
+export const routeFee = (from: string, to: string): number | null => data.settings.feeRoutes?.[routeKey(from, to)] ?? null;
+const removedFees: Record<string, Tx> = {};
+export function deleteTx(id: string): Tx | undefined {
+  const t = removeTx(id);
+  if (!t) return;
+  const fee = data.txs.find((x) => x.feeOf === id);
+  if (fee) { removeTx(fee.id); removedFees[id] = fee; }
   changed();
   return t;
 }
 export function restoreTx(t: Tx): void {
   data.txs.push(t);
   db.tx.put(t).catch(fail);
+  const fee = removedFees[t.id];
+  if (fee) { data.txs.push(fee); db.tx.put(fee).catch(fail); delete removedFees[t.id]; }
   changed();
 }
 

@@ -10,8 +10,10 @@ import { portfolio } from './invest.ts';
 import { BOOKS } from './model.ts';
 import { gridHTML, monthSums, pickerHTML, sumsHTML } from './calview.ts';
 import { longDate } from './format.ts';
+import { feeSummary, foldFees } from './fees.ts';
+import { reconDue } from './recon.ts';
 
-type Api = { icons: () => void; onPhoneShown: () => void; exportExcel: (p: { from: string; to: string; label: string; file: string }) => void };
+type Api = { icons: () => void; onPhoneShown: () => void; exportExcel: (p: { from: string; to: string; label: string; file: string }) => void; recon: () => void };
 let api: Api;
 let root: HTMLElement | null = null;
 const D = { mode: 'month', mk: null, year: null, cat: null, slide: 0, presenting: false, day: null, calPick: false, calY: 0 };
@@ -26,6 +28,13 @@ const reduced = () => window.matchMedia && matchMedia('(prefers-reduced-motion: 
 const MQ = window.matchMedia('(min-width: 1024px) and (min-height: 560px)');
 
 /* ---------- period maths ---------- */
+/** Admin fees in the period on screen, with the most expensive routes. */
+function feeCard(P) {
+  const f = feeSummary(TX(), P.key), W = (id) => store.data.wallets.find((w) => w.id === id)?.name || id;
+  return `<div class="dk-card-h"><h3>Biaya & admin</h3><span class="dk-sub">${esc(P.label)}</span></div>
+    <div class="dk-fee"><b class="m">${rp(f.total)}</b><small>${f.n} kali${f.fromTransfers ? ` · ${f.fromTransfers} dari transfer` : ''}</small></div>
+    ${f.routes.length ? `<div class="dk-fee-routes">${f.routes.slice(0, 4).map((r) => `<div><span>${esc(W(r.from))} → ${esc(W(r.to))}</span><em class="m">${rp(r.total)}</em><small>${r.n}×</small></div>`).join('')}</div>` : ''}`;
+}
 function period() {
   const today = T();
   if (D.mode === 'year') {
@@ -111,7 +120,7 @@ function topCategories(P, cur, prev, big) {
     return `<button class="dk-top" data-a="dkCat" data-cat="${k}" style="--c:${c.c};--i:${i}"><span class="dk-ic sm"><i data-lucide="${c.i}"></i></span><div class="dk-top-m"><div><b>${c.n}</b><em class="m">${rp(v)}</em></div><div class="trk"><i style="width:${(v / mx) * 100}%"></i></div></div><span class="dk-mini-d ${d == null ? 'flat' : d > 0 ? 'bad' : 'good'}">${d == null ? 'baru' : (d > 0 ? '▲ ' : '▼ ') + pct(Math.abs(d))}</span></button>`; }).join('')}</div>`;
 }
 function biggest(P, big) {
-  const list = TX().filter((t) => t.type === 'out' && !t.fixed && t.date.startsWith(P.key)).sort((a, b) => b.amount - a.amount).slice(0, big ? 6 : 6);
+  const list = TX().filter((t) => t.type === 'out' && !t.fixed && !t.adj && t.date.startsWith(P.key)).sort((a, b) => b.amount - a.amount).slice(0, big ? 6 : 6);
   return `<div class="dk-card-h"><h3>Pengeluaran terbesar</h3><small>${esc(P.label)} · tanpa yang tetap</small></div>
   ${list.length ? `<div class="dk-big-list">${list.map((t, i) => { const c = CATS[t.cat] || CATS.lain; return `<div class="dk-big" style="--c:${c.c};--i:${i}"><span class="rank">${i + 1}</span><div><b>${esc(t.note)}</b><small>${c.n} · ${dayLabel(t.date, T())}</small></div><em class="m">${rp(t.amount)}</em></div>`; }).join('')}</div>` : '<div class="dk-empty">Belum ada pengeluaran.</div>'}`;
 }
@@ -153,12 +162,12 @@ function dayPanel(mk) {
   const row = (t) => {
     const c = t.type === 'tf' ? { n: 'Transfer', c: '#94A3B8', i: 'arrow-left-right' } : CATS[t.cat] || CATS.lain;
     const sign = t.type === 'in' ? '+' : t.type === 'out' ? '−' : '';
-    return `<div class="dk-dd-row"><span class="ic" style="--c:${c.c}"><i data-lucide="${c.i}"></i></span><div><b>${t.fixed ? '<i data-lucide="lock" class="fx-ic"></i>' : ''}${esc(t.note)}</b><small>${esc(t.type === 'tf' ? 'Transfer' : `${c.n} · ${t.sub}`)}</small></div><em class="m ${t.type}">${sign}${rp(t.amount)}</em></div>`;
+    return `<div class="dk-dd-row"><span class="ic" style="--c:${c.c}"><i data-lucide="${c.i}"></i></span><div><b>${t.fixed ? '<i data-lucide="lock" class="fx-ic"></i>' : ''}${esc(t.note)}</b><small>${esc(t.type === 'tf' ? 'Transfer' : `${c.n} · ${t.sub}`)}${t.type === 'tf' && list.find((x) => x.feeOf === t.id) ? ` · + admin ${rp(list.find((x) => x.feeOf === t.id).amount)}` : ''}</small></div><em class="m ${t.type}">${sign}${rp(t.amount)}</em></div>`;
   };
   return `<div class="dk-card-h"><h3>${esc(dayLabel(d, T()))}</h3><span class="dk-sub">${esc(longDate(d))}</span></div>
     <div class="dk-dd-sum"><div><small>Masuk</small><b class="m in">${rp(inc)}</b></div><div><small>Keluar</small><b class="m out">${rp(out)}</b></div><div><small>Transaksi</small><b>${list.length}</b></div></div>
     ${fx ? `<p class="dd-fx"><i data-lucide="lock"></i>Tetap ${rp(fx)} · harian ${rp(out - fx)}</p>` : ''}
-    ${list.length ? `<div class="dk-dd-list">${list.map(row).join('')}</div>` : '<div class="dk-empty">Tidak ada transaksi pada hari ini.</div>'}`;
+    ${list.length ? `<div class="dk-dd-list">${foldFees(list).map(row).join('')}</div>` : '<div class="dk-empty">Tidak ada transaksi pada hari ini.</div>'}`;
 }
 function walletsStrip() {
   const ws = WL().map((w) => ({ w, b: balance(ALL(), w) })), tot = ws.reduce((s, x) => s + Math.max(0, x.b), 0) || 1;
@@ -198,10 +207,12 @@ export function render(swap = '') {
         <div class="dk-step"><button data-a="dkStep" data-d="-1" ${canStep(-1) ? '' : 'disabled'} aria-label="Periode sebelumnya"><i data-lucide="chevron-left"></i></button><span>${esc(D.mode === 'year' ? String(D.year) : monthName(D.mk))}</span><button data-a="dkStep" data-d="1" ${canStep(1) ? '' : 'disabled'} aria-label="Periode berikutnya"><i data-lucide="chevron-right"></i></button></div>
         <button class="dk-btn" data-a="dkHide" aria-label="Sembunyikan nominal"><i data-lucide="${root.classList.contains('hid') ? 'eye-off' : 'eye'}"></i></button>
         <button class="dk-btn" data-a="dkExcel" title="Unduh rekap periode ini sebagai Excel"><i data-lucide="file-down"></i>Excel</button>
+        <button class="dk-btn" data-a="dkRecon" title="Samakan saldo dompet dengan saldo di bank & e-wallet"><i data-lucide="scale"></i>Cocokkan</button>
         <button class="dk-btn" data-a="dkPhone"><i data-lucide="smartphone"></i>Catat</button>
         <button class="dk-btn dk-go" data-a="dkPresent"><i data-lucide="presentation"></i>Presentasi</button>
       </div>
     </header>
+    ${reconDue(new Date(), store.data.settings) ? `<div class="dk-rc"><span class="ic"><i data-lucide="scale"></i></span><div><b>Minggu malam, waktunya cocokkan saldo</b><small>Samakan saldo tiap dompet dengan yang ada di aplikasi bank & e-wallet.</small></div><button class="dk-btn dk-go" data-a="dkRecon"><i data-lucide="play"></i>Mulai</button><button class="dk-btn" data-a="dkRcSkip">Lewati minggu ini</button></div>` : ''}
     <div class="dk-body ${swap}">
       ${kpis(P, cur, prev)}
       <div class="dk-grid">
@@ -211,7 +222,7 @@ export function render(swap = '') {
         <section class="dk-card span-4">${biggest(P)}</section>
         <section class="dk-card span-4">${notes(P, cur, prev)}</section>
         ${D.mode === 'month' ? `<section class="dk-card span-8" id="dkCal">${calendarCard(D.mk)}</section><section class="dk-card span-4 dk-dd" id="dkDay">${dayPanel(D.mk)}</section>` : ''}
-        <section class="dk-card span-12">${walletsStrip()}</section>
+        ${feeSummary(TX(), P.key).n ? `<section class="dk-card span-8">${walletsStrip()}</section><section class="dk-card span-4">${feeCard(P)}</section>` : `<section class="dk-card span-12">${walletsStrip()}</section>`}
       </div>
     </div>
     <footer class="dk-foot">Panah ← → untuk ganti periode · tombol Presentasi untuk layar penuh · data dari perangkat ini</footer>
@@ -290,6 +301,8 @@ export function initDesk(a: Api) {
       case 'dkCat': D.cat = d.cat || null; render(); break;
       case 'dkHide': { const hid = !root.classList.contains('hid'); root.classList.toggle('hid', hid); document.getElementById('app')?.classList.toggle('hid', hid); render(); break; }
       case 'dkPhone': openPhone(); break;
+      case 'dkRecon': openPhone(); setTimeout(() => api.recon(), 350); break;
+      case 'dkRcSkip': { const key = reconDue(new Date(), store.data.settings); if (key) store.setSetting('reconSkip', key); render(); break; }
       case 'dkExcel': { const P = period(); api.exportExcel(D.mode === 'year' ? { from: P.key + '-01-01', to: P.key + '-12-31', label: P.label, file: P.key } : { from: P.key + '-01', to: P.key + '-' + pad(daysIn(P.key)), label: P.label, file: P.key }); break; }
       case 'dkPresent': startPresent(); break;
       case 'dkExit': stopPresent(); break;

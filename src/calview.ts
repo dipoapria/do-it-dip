@@ -23,10 +23,10 @@ export function sumsHTML(s) {
  */
 export function gridHTML(o) {
   const tot = dayTotals(o.txs, o.mk), top = topDay(tot), rec = ruleDays(o.rules || [], o.mk);
-  const max = top ? tot[top].out - tot[top].fixed : 0; // shading follows day-to-day spending only
+  const max = top ? tot[top].out - tot[top].fixed - (tot[top].adj || 0) : 0; // shading follows day-to-day spending only
   const cells = monthGrid(o.mk).flat().map((d) => {
     if (!d) return '<span class="cal-d blank"></span>';
-    const x = tot[d], flex = x ? x.out - x.fixed : 0, h = max ? flex / max : 0, r = rec[d];
+    const x = tot[d], flex = x ? x.out - x.fixed - (x.adj || 0) : 0, h = max ? flex / max : 0, r = rec[d];
     const cls = ['cal-d', d === o.today ? 'today' : '', d === o.sel ? 'sel' : '', d > o.today ? 'future' : '', d === top ? 'peak' : '', x ? 'has' : ''].filter(Boolean).join(' ');
     const title = `${Number(d.slice(8))} ${BULAN[Number(d.slice(5, 7)) - 1]}${x ? ` · keluar ${rp(x.out)}${x.fixed ? ` (tetap ${rp(x.fixed)})` : ''} · masuk ${rp(x.inc)}` : ''}${r ? ` · jadwal: ${r.join(', ')}` : ''}`;
     return `<button class="${cls}" style="--h:${h.toFixed(2)}" data-a="${o.act}" data-d="${d}" aria-label="${esc(title)}" title="${esc(title)}">

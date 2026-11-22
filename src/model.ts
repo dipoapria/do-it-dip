@@ -27,6 +27,10 @@ export interface Tx {
   unitPrice?: number;
   /** Products read from a receipt photo (name, line price, quantity). */
   items?: { name: string; amount: number; qty?: number }[];
+  /** This expense is the admin fee of that transfer (shown together with it, edited and deleted with it). */
+  feeOf?: string;
+  /** A balance adjustment from the balance check ("Selisih saldo"): counted in totals, left out of "most spent" views. */
+  adj?: boolean;
   createdAt: number;
   updatedAt: number;
 }
@@ -84,13 +88,21 @@ export interface Settings {
   kwOff: string[];
   /** Transactions saved from this moment on teach the category guess (older ones were guessed by the word list). */
   histFrom: number;
+  /** Admin fee remembered per transfer route ("bsb>spay" → 2500), filled in by itself next time. */
+  feeRoutes: Record<string, number>;
+  /** Balance check: the last check per wallet, every check made, the week skipped, the last full check, finished weeks. */
+  recon: Record<string, { at: number; real: number; gap: number }>;
+  reconLog: { at: number; wallet: string; app: number; real: number; gap: number; kind: 'same' | 'adj' | 'found' }[];
+  reconSkip: string;
+  reconAll: number;
+  reconWeeks: string[];
 }
 
-export const DEFAULT_SETTINGS: Settings = { name: '', onboarded: false, theme: 'system', lpLearned: false, pinHash: '', pinSalt: '', pinLen: 4, bioId: '', lockAfter: 60, cloudEmail: '', cloudLastSync: '', cloudDirty: false, budgets: {}, bookBudgets: {}, books: ['pribadi'], curBook: 'pribadi', receiptMode: 'ai', investTypes: ['saham', 'reksadana', 'obligasi', 'emas', 'deposito', 'kripto'], catEdits: {}, showBars: false, fixedKeys: [], subMap: {}, kwOff: [], histFrom: 0 };
+export const DEFAULT_SETTINGS: Settings = { name: '', onboarded: false, theme: 'system', lpLearned: false, pinHash: '', pinSalt: '', pinLen: 4, bioId: '', lockAfter: 60, cloudEmail: '', cloudLastSync: '', cloudDirty: false, budgets: {}, bookBudgets: {}, books: ['pribadi'], curBook: 'pribadi', receiptMode: 'ai', investTypes: ['saham', 'reksadana', 'obligasi', 'emas', 'deposito', 'kripto'], catEdits: {}, showBars: false, fixedKeys: [], subMap: {}, kwOff: [], histFrom: 0, feeRoutes: {}, recon: {}, reconLog: [], reconSkip: '', reconAll: 0, reconWeeks: [] };
 
 import { DICT, DICT_INCOME } from './dict.ts';
 
-export interface Category { n: string; c: string; i: string; subs: string[]; inc?: boolean; /** only offered in this book */ book?: string; /** not offered in pickers (old transactions keep showing it) */ hidden?: boolean; /** made by the user */ custom?: boolean }
+export interface Category { n: string; c: string; i: string; subs: string[]; inc?: boolean; /** only offered in this book */ book?: string; /** not offered in pickers (old transactions keep showing it) */ hidden?: boolean; /** made by the user */ custom?: boolean; /** used by the app itself (balance check), never offered in pickers or the category list */ system?: boolean }
 /** A user's change to a built-in category, or a whole category of their own (custom: true). */
 export interface CatEdit { n?: string; c?: string; i?: string; subs?: string[]; hidden?: boolean; inc?: boolean; custom?: boolean }
 
@@ -106,7 +118,10 @@ export const CATS: Record<string, Category> = {
   keluarga: { n: 'Keluarga', c: '#EC4899', i: 'users', subs: ['Orang tua', 'Anak & adik', 'Kebutuhan bayi', 'Lainnya'] },
   asuransi: { n: 'Asuransi & pajak', c: '#6366F1', i: 'shield-check', subs: ['Asuransi', 'BPJS', 'Pajak kendaraan', 'PBB & pajak lain'] },
   sosial: { n: 'Sosial & Ibadah', c: '#22C55E', i: 'hand-heart', subs: ['Infaq & sedekah', 'Arisan', 'Kondangan'] },
-  lain: { n: 'Lainnya', c: '#94A3B8', i: 'layout-grid', subs: ['Lainnya', 'Biaya bank'] },
+  biaya: { n: 'Biaya & admin', c: '#0891B2', i: 'receipt', subs: ['Biaya transfer', 'Biaya top up', 'Tarik tunai', 'Admin bulanan', 'Biaya lain'] },
+  lain: { n: 'Lainnya', c: '#94A3B8', i: 'layout-grid', subs: ['Lainnya'] },
+  selisih: { n: 'Selisih saldo', c: '#9333EA', i: 'scale', subs: ['Tidak tercatat'], system: true },
+  selisih_in: { n: 'Selisih saldo', c: '#9333EA', i: 'scale', subs: ['Tidak tercatat'], inc: true, system: true },
   gaji: { n: 'Gaji', c: '#10B981', i: 'briefcase', subs: ['Gaji bulanan'], inc: true },
   bonus: { n: 'Bonus & Honor', c: '#F59E0B', i: 'gift', subs: ['Honor', 'Bonus'], inc: true },
   masuk_lain: { n: 'Pemasukan lain', c: '#06B6D4', i: 'coins', subs: ['Cashback', 'Bunga', 'Dividen & kupon', 'Lainnya'], inc: true },
@@ -125,7 +140,7 @@ export const OUT_CATS: string[] = [];
 export const IN_CATS: string[] = [];
 function refill(): void {
   OUT_CATS.length = 0; IN_CATS.length = 0;
-  for (const k of Object.keys(CATS)) { const c = CATS[k]; if (c.book || c.hidden) continue; (c.inc ? IN_CATS : OUT_CATS).push(k); }
+  for (const k of Object.keys(CATS)) { const c = CATS[k]; if (c.book || c.hidden || c.system) continue; (c.inc ? IN_CATS : OUT_CATS).push(k); }
 }
 refill();
 /**
@@ -227,6 +242,11 @@ export function kwBest(text: string, ...lists: [RegExp, string, string][][]): { 
   });
   return best;
 }
+
+/** Key of a transfer route for the remembered admin fee. */
+export const routeKey = (from: string, to: string): string => from + '>' + to;
+/** Which fee subcategory a transfer's admin fee goes to, by the kind of wallet receiving it. */
+export const feeSub = (toGroup: string | undefined): string => (toGroup === 'E-wallet' ? 'Biaya top up' : toGroup === 'Tunai' ? 'Tarik tunai' : 'Biaya transfer');
 
 export const WALLET_COLORS = ['#0F8B8D', '#6D3FD8', '#00A5CF', '#F25A24', '#2F7CF6', '#2E9E58', '#E04BB5', '#C2410C', '#1D1641', '#B45309'];
 

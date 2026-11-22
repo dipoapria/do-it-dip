@@ -5,7 +5,7 @@ import {
   createIcons, House, ChartPie, Wallet as WalletIcon, Settings as SettingsIcon, Plus, Sparkles, BookOpen, ChevronDown, Eye, EyeOff,
   ArrowDownLeft, ArrowUpRight, ArrowDown, ArrowRight, Keyboard, Utensils, Fuel, ShoppingBag, Zap, HeartPulse, GraduationCap,
   HandHeart, LayoutGrid, Briefcase, Gift, Coins, ArrowLeftRight, Landmark, Smartphone, Banknote, ChevronLeft, ChevronRight,
-  PiggyBank, TrendingUp, TrendingDown, ShieldCheck, X, Check, Calendar, Info, Brain, Settings2, Delete, Copy, Trash2, Lock, Tags,
+  PiggyBank, TrendingUp, TrendingDown, ShieldCheck, X, Check, Calendar, Info, Brain, Settings2, Pin, Scale, CheckCheck, Search, History, Merge, Percent, Delete, Copy, Trash2, Lock, Tags,
   CloudUpload, Download, Upload, MonitorSmartphone, Sun, Moon, User, Laptop, Store, Users, Layers, Pointer, Pencil, Palette,
   Presentation, Minimize, Flame, Clapperboard, Camera, ImagePlus, FileSpreadsheet, ScanLine, Receipt, KeyRound, TriangleAlert, RotateCcw,
   ScanFace, PartyPopper, Play, Hourglass, CloudDownload, RefreshCw, LogOut, Mail, LogIn, Repeat, FileDown, SkipForward, CalendarClock,
@@ -25,6 +25,8 @@ import { extract, NeedPassword } from './filetext.ts';
 import { guessRow, linesToStatement, rowsToStatement } from './statement.ts';
 import { KW, kwBest } from './model.ts';
 import { buildHistory } from './smart.ts';
+import { feeSummary, foldFees } from './fees.ts';
+import { checkWeek, logByMonth, movedSince, reconDue, streak } from './recon.ts';
 import { initDesk, render as renderDesk, sync as syncDesk } from './desk.ts';
 import { gridHTML, monthSums, pickerHTML, sumsHTML } from './calview.ts';
 import { addDays, addMonths, BLN, BULAN, dayLabel, daysIn, digitsOnly, esc, fmtN, HARI, HARI_P, longDate, monthName, pad, pct, rp, shortTxt, toD, todayStr } from './format.ts';
@@ -37,7 +39,7 @@ const ICONS = {
   House, ChartPie, Wallet: WalletIcon, Settings: SettingsIcon, Plus, Sparkles, BookOpen, ChevronDown, Eye, EyeOff, ArrowDownLeft,
   ArrowUpRight, ArrowDown, ArrowRight, Keyboard, Utensils, Fuel, ShoppingBag, Zap, HeartPulse, GraduationCap, HandHeart, LayoutGrid,
   Briefcase, Gift, Coins, ArrowLeftRight, Landmark, Smartphone, Banknote, ChevronLeft, ChevronRight, PiggyBank, TrendingUp,
-  TrendingDown, ShieldCheck, X, Check, Calendar, Info, Brain, Settings2, Delete, Copy, Trash2, Lock, Tags, CloudUpload, Download, Upload,
+  TrendingDown, ShieldCheck, X, Check, Calendar, Info, Brain, Settings2, Pin, Scale, CheckCheck, Search, History, Merge, Percent, Delete, Copy, Trash2, Lock, Tags, CloudUpload, Download, Upload,
   MonitorSmartphone, Sun, Moon, User, Laptop, Store, Users, Layers, Pointer, Pencil, Palette, Presentation, Minimize, Flame, Clapperboard,
   Camera, ImagePlus, FileSpreadsheet, ScanLine, Receipt, KeyRound, TriangleAlert, RotateCcw,
   ScanFace, PartyPopper, Play, Hourglass, CloudDownload, RefreshCw, LogOut, Mail, LogIn, Repeat, FileDown, SkipForward, CalendarClock,
@@ -48,7 +50,7 @@ function icons() { createIcons({ icons: ICONS, attrs: { 'stroke-width': 2.2 } })
 /* ================= state & data helpers ================= */
 const S = {
   idx: 0, pos: 0, mk: null, drill: null, selDay: null, calPick: false, calY: 0, wsel: null, dispTotal: 0,
-  mode: 'kalimat', co: null, nl: '', nlOv: {}, nlPick: null, nlCat: null, lastSig: [], prevMarks: null, editId: null,
+  mode: 'kalimat', co: null, nl: '', nlOv: {}, nlPick: null, nlCat: null, nlFee: null, lastSig: [], prevMarks: null, editId: null,
   m: null, timers: [], justDragged: false, wall: false, peekDrag: null, confirmFn: null, persisted: false,
   ob: null,
   struk: { phase: 'idle' }, imp: { phase: 'idle', wallet: null, rows: [], pick: null },
@@ -95,6 +97,11 @@ let HC = null, HCrev = -1, UC = null, UCrev = -1;
 /** Words that keep ending up in one subcategory (only transactions saved since learning started). */
 function histMap() { if (HCrev !== store.rev()) { HC = buildHistory(store.data.txs, store.data.settings.histFrom); HCrev = store.rev(); } return HC; }
 function subCounts() { if (UCrev !== store.rev()) { UC = {}; for (const t of store.data.txs) if (t.cat && t.sub) UC[t.cat + '|' + t.sub] = (UC[t.cat + '|' + t.sub] || 0) + 1; UCrev = store.rev(); } return UC; }
+let FC = null, FCrev = -1;
+/** Admin-fee transactions by the transfer they belong to. */
+function feeMap() { if (FCrev !== store.rev()) { FC = {}; for (const t of store.data.txs) if (t.feeOf) FC[t.feeOf] = t; FCrev = store.rev(); } return FC; }
+/** The fee of a transfer being recorded: typed or picked > remembered for the route > none. */
+const FEE_PICKS = [0, 1000, 2500, 6500];
 /** A category's subcategories, most used first (ties keep the list order). */
 function subsOrd(k) { const c = subCounts(); return CATS[k].subs.map((s, i) => ({ s, i, n: c[k + '|' + s] || 0 })).sort((a, b) => b.n - a.n || a.i - b.i).map((x) => x.s); }
 /** Chips after a subcategory row in every picker: add a subcategory here, or manage the category. */
@@ -142,14 +149,15 @@ function countUp(el) {
 /* ================= views ================= */
 function txRow(t) {
   const c = catOf(t), w = W(t.wallet), sign = t.type === 'in' ? '+' : t.type === 'out' ? '−' : '';
-  const meta = t.type === 'tf' ? `${esc(w.name)} → ${esc(W(t.to).name)}` : `${esc(t.sub)} · ${esc(w.name)}`;
+  const fee = t.type === 'tf' ? feeMap()[t.id] : null;
+  const meta = t.type === 'tf' ? `${esc(w.name)} → ${esc(W(t.to).name)}${fee ? ` <span class="fee-tag">+ admin ${money(fee.amount)}</span>` : ''}` : `${esc(t.sub)} · ${esc(w.name)}`;
   return `<button class="tx${t.fresh ? ' fresh' : ''}" data-a="tx" data-id="${t.id}"><span class="ic" style="--c:${c.c}"><i data-lucide="${c.i}"></i></span><span class="tx-main"><b>${t.fixed ? '<i data-lucide="lock" class="fx-ic" aria-label="Pengeluaran tetap"></i>' : ''}${esc(t.note)}</b><small>${t.rec ? '<i data-lucide="repeat" class="rec-ic"></i>' : ''}${meta}</small></span><span class="amt ${t.type}">${sign}${money(t.amount)}</span></button>`;
 }
 function grouped(list) {
   const g = {}; list.forEach((t) => { (g[t.date] = g[t.date] || []).push(t); });
   return Object.keys(g).sort().reverse().map((d) => {
     const out = g[d].filter((t) => t.type === 'out').reduce((s, t) => s + t.amount, 0);
-    return `<div class="day-h"><span>${dayLabel(d, T())}</span><span class="num">${out ? '−' + money(out) : ''}</span></div><div class="list">${g[d].map(txRow).join('')}</div>`;
+    return `<div class="day-h"><span>${dayLabel(d, T())}</span><span class="num">${out ? '−' + money(out) : ''}</span></div><div class="list">${foldFees(g[d]).map(txRow).join('')}</div>`;
   }).join('');
 }
 function timeOfDay() { const h = new Date().getHours(); if (h >= 4 && h < 10) return ['Selamat pagi', 'morning']; if (h >= 10 && h < 15) return ['Selamat siang', 'day']; if (h >= 15 && h < 18) return ['Selamat sore', 'dusk']; return ['Selamat malam', 'night']; }
@@ -279,7 +287,7 @@ function dayDetailHTML(mk) {
     <div class="tiles dd-tiles"><div class="tile in"><small>Masuk</small><b>${inc ? shortTxt(inc) : '–'}</b></div><div class="tile out"><small>Keluar</small><b>${out ? shortTxt(out) : '–'}</b></div><div class="tile"><small>Transaksi</small><b>${list.length}</b></div></div>
     ${fx ? `<p class="dd-fx"><i data-lucide="lock"></i>Tetap ${rp(fx)} · harian ${rp(out - fx)}</p>` : ''}
     ${cats.length ? `<div class="dd-cats">${cats.map(([k, v]) => `<div style="--c:${CATS[k]?.c || '#94A3B8'}"><span>${esc(CATS[k]?.n || k)}</span><i style="width:${Math.max(4, (v / out) * 100).toFixed(0)}%"></i><em>${shortTxt(v)}</em></div>`).join('')}</div>` : ''}
-    ${list.length ? `<div class="list">${list.map(txRow).join('')}</div>` : '<div class="empty">Tidak ada transaksi pada hari ini.</div>'}`;
+    ${list.length ? `<div class="list">${foldFees(list).map(txRow).join('')}</div>` : '<div class="empty">Tidak ada transaksi pada hari ini.</div>'}`;
 }
 function selectDay(day) {
   S.selDay = day; PANELS[1].querySelectorAll('.bar, #calCard .cal-d').forEach((b) => b.classList.toggle('sel', b.dataset.d === day));
@@ -321,6 +329,15 @@ function jumpToDay(day) {
   if (mk !== S.mk) { S.mk = mk; S.selDay = day; S.calPick = false; renderPanel(1); icons(); } else selectDay(day);
   later(60, () => { const c = $('dayDet'); if (c) PANELS[1].scrollTo({ top: c.offsetTop - 70, behavior: reduced() ? 'auto' : 'smooth' }); });
 }
+/** What admin fees cost this month, and the most expensive transfer route. */
+function feeCardHTML(mk) {
+  const f = feeSummary(TX(), mk); if (!f.n) return '';
+  const top = f.routes[0];
+  return `<div class="card fee-card"><h4>Biaya & admin <small>${f.n}× bulan ini</small></h4>
+    <div class="fee-row"><b class="m">${money(f.total)}</b><span>${f.fromTransfers ? `${f.fromTransfers} dari transfer & isi saldo` : 'biaya bank & administrasi'}</span></div>
+    ${top ? `<p class="fee-top"><i data-lucide="arrow-left-right"></i>Paling mahal: <b>${esc(W(top.from).name)} → ${esc(W(top.to).name)}</b> ${money(top.total)} (${top.n}×)</p>` : ''}
+    <button class="btn2 wide" data-a="drill" data-cat="biaya"><i data-lucide="receipt"></i>Lihat rinciannya</button></div>`;
+}
 function vRekap(swap) {
   const months = monthList(TX(), T());
   if (!S.mk || !months.includes(S.mk)) S.mk = months[months.length - 1];
@@ -340,6 +357,7 @@ function vRekap(swap) {
   <div class="card"><h4>Ke mana uang pergi? <small>${parts.length ? 'ketuk warna' : ''}</small></h4>
     ${parts.length ? `<div class="donut-wrap">${donut(parts, st.out)}<div class="legend">${parts.map((p) => `<button data-a="drill" data-cat="${p.k}" style="--c:${CATS[p.k].c}"><i></i><span>${CATS[p.k].n}</span><em>${pct(p.v / st.out)}</em></button>`).join('')}</div></div>` : '<div class="empty">Belum ada pengeluaran di bulan ini.</div>'}</div>
   ${budgetCardHTML(mk, st)}
+  ${feeCardHTML(mk)}
   <div class="card cal-card" id="calCard">${calCardHTML(mk)}</div>
   ${store.data.settings.showBars ? `<div class="card chart"><h4>Pengeluaran harian <small>${st.n} transaksi</small></h4><div class="chart-note" id="daynote">${note}</div>${dailyChart(mk, st)}</div>` : ''}
   <div class="card" id="dayDet"><h4>Rincian per hari <button class="dd-cal" data-a="calOpen" aria-label="Lompat ke tanggal"><i data-lucide="calendar"></i>Lompat</button></h4><div id="ddBody">${dayDetailHTML(mk)}</div></div>
@@ -394,6 +412,7 @@ function vDompet() {
   <div class="tip" style="margin:-6px 0 14px"><i data-lucide="arrow-down"></i>tarik kartu ke bawah untuk mengintip saldonya</div>
   <div class="wstack" id="wstack">${cards}</div>
   <div id="wdetail" class="wdetail"></div>
+  <div class="rc-entry"><button class="rc-entry-main" data-a="rcOpen"><span class="ic"><i data-lucide="scale"></i></span><span><b>Cocokkan saldo</b><small>${rcEntryNote()}</small></span><i data-lucide="chevron-right"></i></button><button class="icon-btn" data-a="rcHistory" aria-label="Riwayat pencocokan"><i data-lucide="history"></i></button></div>
   <div class="books-sec">
     <button class="btn2 dash" data-a="walletNew"><i data-lucide="plus"></i>Tambah bank atau e-wallet</button>
     ${isPersonal() ? `<div id="planSec">${planHTML()}</div><div id="invSec">${invHTML()}</div>` : ''}
@@ -402,12 +421,21 @@ function vDompet() {
     </div>
   </div></div>`;
 }
+/** "Semua cocok 3 hari lalu" / "2 dompet belum pernah dicocokkan" under the wallet-tab button. */
+function rcEntryNote() {
+  const ws = WL(), never = ws.filter((w) => !rcSince(w.id)).length, last = store.data.settings.reconAll;
+  if (never === ws.length) return 'Samakan catatan dengan saldo di bank & e-wallet';
+  if (never) return `${never} dompet belum pernah dicocokkan`;
+  return last ? `Terakhir lengkap ${dayLabel(dateOf(last), T()).toLowerCase()}` : 'Samakan catatan dengan saldo sebenarnya';
+}
 function walletDetail(k) {
   const mk = T().slice(0, 7), list = sorted().filter((t) => t.wallet === k || t.to === k);
   let inn = 0, out = 0;
   list.filter((t) => t.date.startsWith(mk)).forEach((t) => { if (t.type === 'in' || (t.type === 'tf' && t.to === k)) inn += t.amount; else out += t.amount; });
   const mon = BLN[Number(mk.slice(5)) - 1];
-  return `<div class="mini-stats sa" style="--i:0;grid-template-columns:1fr 1fr"><div class="tile in"><small>Masuk ${mon}</small><b>${money(inn)}</b></div><div class="tile out"><small>Keluar ${mon}</small><b>${money(out)}</b></div></div>
+  const rl = rcLast(k), moved = rl ? rcMoved(k) : 0;
+  const rcLine = `<div class="rc-status sa" style="--i:0"><i data-lucide="${rl ? (rl.gap ? 'scale' : 'check-check') : 'scale'}"></i><span>${rl ? `${rl.gap ? `Selisih ${sgn(rl.gap)} disesuaikan` : 'Cocok'} ${dayLabel(dateOf(rl.at), T()).toLowerCase()}${moved ? ` · ${moved} transaksi sesudahnya` : ''}` : 'Belum pernah dicocokkan'}</span><button class="btn2" data-a="rcOne" data-id="${k}">Cocokkan</button></div>`;
+  return `${rcLine}<div class="mini-stats sa" style="--i:0;grid-template-columns:1fr 1fr"><div class="tile in"><small>Masuk ${mon}</small><b>${money(inn)}</b></div><div class="tile out"><small>Keluar ${mon}</small><b>${money(out)}</b></div></div>
   <div class="sec-h sa" style="--i:1"><h3>Riwayat terbaru</h3><small>${list.length} transaksi</small></div>
   <div class="sa" style="--i:2">${list.length ? grouped(list.slice(0, 15)) : '<div class="empty">Belum ada transaksi di dompet ini.</div>'}</div>
   <div class="btn-row sa" style="--i:3"><button class="btn2" data-a="walletEdit" data-id="${k}"><i data-lucide="pencil"></i>Ubah dompet</button><button class="btn2" data-a="wclose"><i data-lucide="layers"></i>Ke tumpukan</button></div>`;
@@ -792,7 +820,15 @@ async function startStruk(file) {
 
 /* ---------- Impor: bank statement file → reviewed transactions ---------- */
 function impCtx() { return { source: S.imp.wallet, learned: store.data.learned, wallets: WL().map((w) => ({ id: w.id, aliases: w.aliases?.length ? w.aliases : [w.name.toLowerCase()], group: w.group })) }; }
-function regroupImport() { const g = impCtx(); S.imp.rows.forEach((r) => { if (!r.manual) r.g = guessRow(r, g); r.dup = TX().some((t) => t.date === r.date && t.amount === r.amount && (t.wallet === S.imp.wallet || t.to === S.imp.wallet)); }); }
+function regroupImport() { const g = impCtx(); S.imp.rows.forEach((r) => { if (!r.manual) r.g = guessRow(r, g); r.dup = TX().some((t) => t.date === r.date && t.amount === r.amount && (t.wallet === S.imp.wallet || t.to === S.imp.wallet)); }); joinImportFees(); }
+/** A "BIAYA TRANSFER" line right next to a transfer on the same day becomes that transfer's admin fee. */
+function joinImportFees() {
+  const rows = S.imp.rows; rows.forEach((r) => { r.feeTo = null; r.fee = 0; });
+  rows.forEach((r, i) => {
+    if (r.g.type !== 'out' || r.g.cat !== 'biaya' || !['Biaya transfer', 'Biaya top up', 'Tarik tunai'].includes(r.g.sub) || r.amount > 25000) return;
+    for (const j of [i - 1, i + 1, i - 2, i + 2]) { const x = rows[j]; if (x && x.g.type === 'tf' && x.date === r.date && !x.fee) { x.fee = r.amount; r.feeTo = j; return; } }
+  });
+}
 function mImpor() {
   const s = S.imp; if (!s.wallet || !WL().some((w) => w.id === s.wallet)) s.wallet = (WL().find((w) => w.group === 'Bank') || WL()[0])?.id;
   const head = `<span class="lab">Mutasi dari rekening</span><div class="hscroll">${WL().map((w) => `<button class="chip ${s.wallet === w.id ? 'on' : ''}" data-a="impWallet" data-v="${w.id}"><i data-lucide="${WALLET_ICON[w.group]}"></i>${esc(w.name)}</button>`).join('')}</div>`;
@@ -811,9 +847,9 @@ function mImpor() {
     <div class="imp-tot"><span class="in">+${rp(inn)}</span><span class="out">−${rp(out)}</span></div></div>
     <div class="btn-row" style="margin:0 0 10px"><button class="btn2" data-a="impAll">Pilih semua</button><button class="btn2" data-a="impNone">Kosongkan</button></div>
     <div class="list imp-list">${s.rows.map((r, i) => {
-      const g = r.g, lbl = g.type === 'tf' ? `Transfer → ${esc(W(g.to).name)}` : `${CATS[g.cat].n} · ${esc(g.sub)}`, col = g.type === 'tf' ? '#3D7BFF' : CATS[g.cat].c;
+      const g = r.g, lbl = g.type === 'tf' ? `Transfer → ${esc(W(g.to).name)}${r.fee ? ` · admin ${rp(r.fee)}` : ''}` : `${CATS[g.cat].n} · ${esc(g.sub)}`, col = g.type === 'tf' ? '#3D7BFF' : CATS[g.cat].c;
       return `<div class="imp-row ${r.on ? '' : 'off'}"><button class="cb ${r.on ? 'on' : ''}" data-a="impTog" data-i="${i}" aria-label="Pilih transaksi">${r.on ? '<i data-lucide="check"></i>' : ''}</button>
-      <div class="mm"><small class="d">${dayLabel(r.date, T())}${r.dup ? ' · <b>sudah ada?</b>' : ''}</small><code>${esc(r.desc)}</code>
+      <div class="mm"><small class="d">${dayLabel(r.date, T())}${r.dup ? ' · <b>sudah ada?</b>' : ''}${r.feeTo != null ? ' · <b class="fee-join">jadi biaya admin transfer di sebelahnya</b>' : ''}</small><code>${esc(r.desc)}</code>
       <button class="chip cat sm ${s.pick === i ? 'on' : ''}" style="--c:${col}" data-a="impPick" data-i="${i}">${lbl}<i data-lucide="chevron-down"></i></button></div>
       <span class="amt ${g.type}">${g.type === 'in' ? '+' : g.type === 'out' ? '−' : ''}${rp(r.amount)}</span></div>
       ${s.pick === i ? `<div class="picker">${(r.type === 'in' ? INC() : OUTC()).map((k) => `<button class="chip cat" style="--c:${CATS[k].c}" data-a="impSet" data-i="${i}" data-cat="${k}"><i data-lucide="${CATS[k].i}"></i>${CATS[k].n}</button>`).join('')}${r.type === 'out' ? WL().filter((w) => w.id !== s.wallet).map((w) => `<button class="chip" data-a="impSet" data-i="${i}" data-to="${w.id}"><i data-lucide="arrow-left-right"></i>Ke ${esc(w.name)}</button>`).join('') : ''}</div>` : ''}`;
@@ -860,11 +896,18 @@ function nlItems() {
   return parseText(S.nl, ctx()).map((p, i) => {
     const ov = S.nlOv[i];
     if (ov && ov.raw === p.raw) { if (ov.cat && p.type !== 'tf') { p.cat = ov.cat; p.sub = ov.sub; p.type = CATS[ov.cat].inc ? 'in' : 'out'; } if (ov.wallet) p.wallet = ov.wallet; }
-    if (p.type === 'tf') p.note = tfNote(p);
+    if (p.type === 'tf') {
+      p.note = tfNote(p);
+      p.feeMem = store.routeFee(p.wallet, p.to);
+      if (ov && ov.raw === p.raw && ov.fee !== undefined) { p.fee = ov.fee; p.feeSrc = 'set'; }
+      else if (p.fee > 0) p.feeSrc = 'typed';
+      else if (p.feeMem) { p.fee = p.feeMem; p.feeSrc = 'mem'; }
+      else { p.fee = 0; p.feeSrc = ''; }
+    }
     return p;
   });
 }
-const sigOf = (p) => ({ amt: p.amount, cat: p.cat + p.sub, wal: p.wallet + (p.to || ''), date: p.date });
+const sigOf = (p) => ({ amt: p.amount, cat: p.cat + p.sub, wal: p.wallet + (p.to || ''), date: p.date, fee: p.fee || 0 });
 function pvHTML() {
   const items = nlItems();
   if (!items.length) { S.lastSig = []; return `<div class="empty">Pratinjau muncul di sini saat Anda mengetik.<br>Kata yang dikenali langsung diberi warna.</div>`; }
@@ -874,14 +917,18 @@ function pvHTML() {
     const tl = p.type === 'in' ? 'Pemasukan' : p.type === 'tf' ? 'Transfer' : 'Pengeluaran';
     const wchip = (id, a) => `<${a ? 'button' : 'span'} class="chip${pop('wal')}" ${a ? `data-a="pvwal" data-i="${i}"` : ''}><i data-lucide="${WALLET_ICON[W(id).group]}"></i>${esc(W(id).name)}</${a ? 'button' : 'span'}>`;
     let chips = '';
-    if (p.type === 'tf') chips = `${wchip(p.wallet)}<i data-lucide="arrow-right" style="align-self:center;color:var(--ink-3)"></i>${wchip(p.to)}`;
+    if (p.type === 'tf') chips = `${wchip(p.wallet)}<i data-lucide="arrow-right" style="align-self:center;color:var(--ink-3)"></i>${wchip(p.to)}<button class="chip fee${pop('fee')} ${p.fee ? 'has' : ''} ${S.nlFee === i ? 'on' : ''}" data-a="pvfee" data-i="${i}"><i data-lucide="receipt"></i>${p.fee ? `admin ${rp(p.fee)}` : '+ biaya admin'}<i data-lucide="chevron-down"></i></button>`;
     else { const c = CATS[p.cat]; chips = `<button class="chip cat${pop('cat')} ${S.nlPick === i ? 'on' : ''}" style="--c:${c.c}" data-a="pvcat" data-i="${i}"><i data-lucide="${c.i}"></i>${c.n} · ${esc(p.sub)}<i data-lucide="chevron-down"></i></button>${wchip(p.wallet, true)}`; }
     chips += `<span class="chip${pop('date')}"><i data-lucide="calendar"></i>${dayLabel(p.date, T())}</span>`;
     const pkCats = () => (p.type === 'in' ? INC().concat(OUTC()) : OUTC().concat(INC())).map((k, j) => `<button class="chip cat ${k === p.cat ? 'on' : ''}" style="--c:${CATS[k].c};--i:${j}" data-a="pvset" data-i="${i}" data-cat="${k}" data-lp="cat"><i data-lucide="${CATS[k].i}"></i>${esc(CATS[k].n)}</button>`).join('') + `<button class="chip add" data-a="catNewCo" data-inc="${p.type === 'in' ? 1 : 0}"><i data-lucide="plus"></i>Kategori baru</button>`;
     const pkSubs = (k) => `<button class="chip cat on" style="--c:${CATS[k].c};--i:0" data-a="pvback"><i data-lucide="chevron-left"></i>${esc(CATS[k].n)}</button>${subsOrd(k).map((sb, j) => subChip(k, sb, k === p.cat && sb === p.sub, `style="--i:${j + 1}" data-a="pvsub" data-i="${i}" data-v="${esc(sb)}"`)).join('')}${subTools(k, 'pv', i)}`;
+    const fk = S.nlFee === i && p.type === 'tf' ? `<div class="picker fee-pick"><span class="pk-lab">Biaya admin ${esc(W(p.wallet).name)} → ${esc(W(p.to).name)}</span>${feePicks(p.fee, p.feeMem).map((v) => `<button class="chip ${p.fee === v ? 'on' : ''}" data-a="pvfeeSet" data-i="${i}" data-v="${v}">${v ? rp(v) : 'Gratis'}${v && v === p.feeMem ? ' · biasa' : ''}</button>`).join('')}
+      <div class="fee-in"><input class="field" id="pvFeeIn" inputmode="numeric" placeholder="Jumlah lain, mis. 4.000" autocomplete="off"><button class="btn2" data-a="pvfeeIn" data-i="${i}">Pakai</button></div>
+      ${(p.fee || 0) !== (p.feeMem || 0) ? `<button class="chip add" data-a="pvfeeKeep" data-i="${i}"><i data-lucide="pin"></i>${p.fee ? `Jadikan ${rp(p.fee)} biaya biasa rute ini` : 'Rute ini biasanya gratis'}</button>` : ''}</div>` : '';
     const pk = S.nlPick === i && p.type !== 'tf' ? `<div class="picker"><span class="pk-lab">${S.nlCat && CATS[S.nlCat] ? 'Pilih subkategori' : 'Pilih kategori'}</span>${S.nlCat && CATS[S.nlCat] ? pkSubs(S.nlCat) : pkCats()}</div>` : '';
-    return `<div class="pv${prev ? '' : ' new'}"><div class="pv-top"><span class="type ${p.type}">${tl}</span><span class="pv-amt${p.amount ? '' : ' none'}${pop('amt')}">${p.amount ? (p.type === 'in' ? '+' : '') + rp(p.amount) : 'Nominal belum terbaca'}</span></div><div class="pv-note">${esc(p.note)}</div><div class="chips">${chips}</div>${pk}
+    return `<div class="pv${prev ? '' : ' new'}"><div class="pv-top"><span class="type ${p.type}">${tl}</span><span class="pv-amt${p.amount ? '' : ' none'}${pop('amt')}">${p.amount ? (p.type === 'in' ? '+' : '') + rp(p.amount) : 'Nominal belum terbaca'}</span></div><div class="pv-note">${esc(p.note)}</div><div class="chips">${chips}</div>${pk}${fk}
       ${p.assumed ? `<div class="hint"><i data-lucide="info"></i>Angka tanpa satuan dibaca ribuan: ${rp(p.amount)}</div>` : ''}
+      ${p.type === 'tf' && p.fee ? `<div class="hint learned"><i data-lucide="receipt"></i>${p.feeSrc === 'mem' ? `Biaya admin ${rp(p.fee)} diingat untuk rute ini. ` : ''}Keluar dari ${esc(W(p.wallet).name)} ${rp(p.amount + p.fee)}, masuk ${esc(W(p.to).name)} ${rp(p.amount)}</div>` : ''}
       ${p.learned ? `<div class="hint learned"><i data-lucide="brain"></i>Kategori diingat dari koreksi Anda</div>` : p.hist ? `<div class="hint learned"><i data-lucide="history"></i>Dari kebiasaan Anda: “${esc(p.hist.word)}” ${p.hist.n}× di ${esc(p.sub)}</div>` : ''}</div>`;
   }).join('')}</div>
   <button class="primary" data-a="saveNL" ${ok ? '' : 'disabled'}><i data-lucide="check"></i>Simpan ${ok > 1 ? ok + ' transaksi' : 'transaksi'}</button>`;
@@ -890,13 +937,23 @@ function pvHTML() {
 function refreshPreview() { const pv = $('preview'); if (pv) { pv.innerHTML = pvHTML(); icons(); } }
 
 function amtHTML() { const s = fmtN(Number(S.m.amt) || 0); return 'Rp' + [...s].map((ch, i) => `<span class="${i === s.length - 1 && S.m.amt && S.m.justTyped ? 'dig-in' : ''}">${ch}</span>`).join(''); }
+/** Fee chips offered: the usual ones plus the remembered and current amounts. */
+const feePicks = (cur, mem) => Array.from(new Set([...FEE_PICKS, mem || 0, cur || 0])).sort((a, b) => a - b);
+const mFee = (m) => (m.fee ?? store.routeFee(m.wallet, m.to) ?? 0);
+function mFeeHTML(m) {
+  const mem = store.routeFee(m.wallet, m.to), fee = mFee(m);
+  return `<span class="lab">Biaya admin${m.fee == null && mem ? ' <em class="lab-note">· diingat untuk rute ini</em>' : ''}</span>
+  <div class="hscroll">${feePicks(fee, mem).map((v) => `<button class="chip ${fee === v && !m.feeOther ? 'on' : ''}" data-a="mfee" data-v="${v}">${v ? rp(v) : 'Gratis'}${v && v === mem ? ' · biasa' : ''}</button>`).join('')}<button class="chip ${m.feeOther ? 'on' : ''}" data-a="mfee" data-v="x"><i data-lucide="pencil"></i>Lain</button></div>
+  ${m.feeOther ? `<div class="fee-in"><input class="field" id="mFeeIn" inputmode="numeric" placeholder="mis. 4.000" autocomplete="off"><button class="btn2" data-a="mfeeIn">Pakai</button></div>` : ''}
+  ${fee !== (mem || 0) ? `<button class="chip add fee-keep" data-a="mfeeKeep"><i data-lucide="pin"></i>${fee ? `Jadikan ${rp(fee)} biaya biasa rute ini` : 'Rute ini biasanya gratis'}</button>` : ''}`;
+}
 function mManual() {
   const m = S.m, cats = m.type === 'in' ? INC() : OUTC(), amt = Number(m.amt) || 0, today = T();
   const wchips = (key, sel) => WL().map((w) => `<button class="chip ${sel === w.id ? 'on' : ''}" data-a="mset" data-k="${key}" data-v="${w.id}"><i data-lucide="${WALLET_ICON[w.group]}"></i>${esc(w.name)}</button>`).join('');
   const quick = [[today, 'Hari ini'], [addDays(today, -1), 'Kemarin'], [addDays(today, -2), '2 hari lalu']];
   return `<div class="seg" id="typeSeg" style="margin-bottom:10px"><span class="pill"></span>${[['out', 'Pengeluaran'], ['in', 'Pemasukan'], ['tf', 'Transfer']].map(([k, l]) => `<button class="${m.type === k ? 'on' : ''}" data-a="mset" data-k="type" data-v="${k}">${l}</button>`).join('')}</div>
   <div class="amount-disp"><small>Nominal</small><div class="ad ${amt ? '' : 'zero'}" id="mamt">${amtHTML()}</div></div>
-  ${m.type === 'tf' ? `<span class="lab">Dari</span><div class="hscroll">${wchips('wallet', m.wallet)}</div><span class="lab">Ke</span><div class="hscroll">${wchips('to', m.to)}</div>` :
+  ${m.type === 'tf' ? `<span class="lab">Dari</span><div class="hscroll">${wchips('wallet', m.wallet)}</div><span class="lab">Ke</span><div class="hscroll">${wchips('to', m.to)}</div>${mFeeHTML(m)}` :
   `<span class="lab">Kategori</span><div class="hscroll">${cats.map((k) => `<button class="chip cat ${m.cat === k ? 'on' : ''}" style="--c:${CATS[k].c}" data-a="mset" data-k="cat" data-v="${k}" data-lp="cat" data-cat="${k}"><i data-lucide="${CATS[k].i}"></i>${CATS[k].n}</button>`).join('')}<button class="chip add" data-a="catNewCo" data-inc="${m.type === 'in' ? 1 : 0}"><i data-lucide="plus"></i>Kategori baru</button></div>
   <div class="hscroll">${subsOrd(m.cat).map((s) => subChip(m.cat, s, m.sub === s, `data-a="mset" data-k="sub" data-v="${esc(s)}"`)).join('')}${subTools(m.cat, 'm')}</div>
   <span class="lab">Dompet</span><div class="hscroll">${wchips('wallet', m.wallet)}</div>`}
@@ -994,7 +1051,7 @@ function sTx(id) {
   openSheet('Detail transaksi', `<div class="det-top"><span class="ic" style="--c:${c.c}"><i data-lucide="${c.i}"></i></span><div class="a" style="color:${t.type === 'in' ? 'var(--in)' : t.type === 'tf' ? 'var(--transfer)' : 'var(--ink)'}">${t.type === 'in' ? '+' : t.type === 'out' ? '−' : ''}${money(t.amount)}</div><p>${esc(t.note)}</p></div>
   <div class="card" style="padding:4px 14px">
     <div class="kv" style="border-top:0"><span>Kategori</span><b>${t.type === 'tf' ? (t.debt ? c.n : 'Transfer') : `${c.n} · ${esc(t.sub)}`}</b></div>
-    <div class="kv"><span>${t.type === 'tf' ? 'Dari → Ke' : 'Dompet'}</span><b>${t.type === 'tf' ? `${esc(w.name)} → ${esc(W(t.to).name)}` : esc(w.name)}</b></div>
+    <div class="kv"><span>${t.type === 'tf' ? 'Dari → Ke' : 'Dompet'}</span><b>${t.type === 'tf' ? `${esc(w.name)} → ${esc(W(t.to).name)}` : esc(w.name)}</b></div>${t.type === 'tf' && feeMap()[t.id] ? `<button class="kv kv-btn" data-a="tx" data-id="${feeMap()[t.id].id}"><span>Biaya admin</span><b>${rp(feeMap()[t.id].amount)} · ${esc(feeMap()[t.id].sub)}<i data-lucide="chevron-right"></i></b></button><div class="kv"><span>Keluar dari ${esc(w.name)}</span><b>${rp(t.amount + feeMap()[t.id].amount)}</b></div>` : ''}${t.feeOf && TX().some((x) => x.id === t.feeOf) ? `<button class="kv kv-btn" data-a="tx" data-id="${t.feeOf}"><span>Biaya untuk</span><b>${esc(TX().find((x) => x.id === t.feeOf).note)}<i data-lucide="chevron-right"></i></b></button>` : ''}
     <div class="kv"><span>Tanggal</span><b>${longDate(t.date)}</b></div>
     <div class="kv"><span>Buku</span><b>${(BOOKS[t.book] || BOOKS.pribadi).n}</b></div>${t.type === 'out' && !t.debt && !t.inv ? `<button class="kv kv-btn" data-a="txFixed" data-id="${t.id}"><span><i data-lucide="lock"></i>Pengeluaran tetap</span><span class="sw ${t.fixed ? 'on' : ''}" role="switch" aria-checked="${!!t.fixed}"><i></i></span></button>` : ''}${t.items?.length ? `<div class="kv tx-items"><span>Produk</span><div>${t.items.map((it) => `<div><span>${esc(it.name)}${it.qty > 1 && !/\(\d/.test(it.name) ? ` ×${it.qty}` : ''}</span><b>${rp(it.amount)}</b></div>`).join('')}</div></div>` : ''}${rule ? `<div class="kv"><span>Berulang</span><b>${scheduleLabel(rule)} · ${rule.auto ? 'otomatis' : 'tanya dulu'}</b></div>` : ''}</div>
   ${t.debt ? `<button class="btn2 wide" data-a="debt" data-id="${t.debt}"><i data-lucide="hand-coins"></i>Buka catatan utang & piutang</button>` : t.inv ? `<button class="btn2 wide" data-a="asset" data-id="${t.inv}"><i data-lucide="chart-candlestick"></i>Buka aset investasi</button>` : txButtons(t, rule)}
@@ -1276,7 +1333,7 @@ let CF = null;
 const catEdits = () => store.data.settings.catEdits || {};
 const catUse = (k) => store.data.txs.filter((t) => t.cat === k).length;
 function cmInner() {
-  const keys = Object.keys(CATS).filter((k) => !!CATS[k].inc === CM.inc && (!CATS[k].book || CATS[k].book === BK()));
+  const keys = Object.keys(CATS).filter((k) => !!CATS[k].inc === CM.inc && !CATS[k].system && (!CATS[k].book || CATS[k].book === BK()));
   const row = (k) => { const c = CATS[k]; return `<button class="set-row${c.hidden ? ' cat-off' : ''}" data-a="catEdit" data-k="${k}"><span class="ic" style="--c:${c.c}"><i data-lucide="${c.i}"></i></span><div class="t"><b>${esc(c.n)}</b><small>${c.hidden ? 'Disembunyikan' : esc(c.subs.join(', '))}</small></div><i data-lucide="chevron-right"></i></button>`; };
   return `<div class="hscroll" style="margin-bottom:6px">${[[false, 'Pengeluaran', 'arrow-up-right'], [true, 'Pemasukan', 'arrow-down-left']].map(([v, l, i]) => `<button class="chip ${CM.inc === v ? 'on' : ''}" data-a="catTab" data-v="${v ? 1 : 0}"><i data-lucide="${i}"></i>${l}</button>`).join('')}</div>
     <div class="card" style="padding:4px 14px">${keys.filter((k) => !CATS[k].hidden).map(row).join('')}${keys.filter((k) => CATS[k].hidden).map(row).join('')}</div>
@@ -1323,6 +1380,174 @@ function cfAddSub() {
   if (CF.subs.some((s) => s.toLowerCase() === v.toLowerCase())) return toast('Subkategori itu sudah ada');
   if (CF.k) { store.addSub(CF.k, v); CF.subs = CATS[CF.k].subs.slice(); afterCatChange(); toast(`Subkategori “${v}” ditambahkan`); } else CF.subs.push(v);
   cfDraw(); $('cfSub')?.focus();
+}
+
+/* ================= balance check ("Cocokkan saldo") ================= */
+let R = null;
+const rcLast = (id) => store.data.settings.recon?.[id] || null;
+const rcSince = (id) => rcLast(id)?.at || 0;
+const rcMoved = (id) => movedSince(store.data.txs, id, rcSince(id));
+const sgn = (v) => (v < 0 ? '−' : '+') + rp(Math.abs(v));
+/** Wallets with something new since their last check come first; quiet ones are confirmed together at the end. */
+function rcPlan(only) {
+  if (only) return { list: [only], rest: [] };
+  const ws = WL().map((w) => w.id), moved = ws.filter((id) => !rcSince(id) || rcMoved(id) > 0);
+  return { list: moved, rest: ws.filter((id) => !moved.includes(id)) };
+}
+function sRecon(opts = {}) {
+  const p = rcPlan(opts.only), now = new Date();
+  R = { weekly: !!opts.weekly, week: opts.week || null, only: opts.only || null, list: p.list, rest: p.rest, i: 0, step: opts.weekly ? 'intro' : p.list.length ? 'w' : 'rest', res: [], added: [], cause: null, real: null, at: now };
+  sheetKey = 'recon'; openSheet(opts.only ? `Cocokkan ${W(opts.only).name}` : 'Cocokkan saldo', `<div id="rcBody" class="rc">${rcInner()}</div>`);
+  rcAfter();
+}
+function rcDraw(anim) {
+  const b = $('rcBody'); if (!b) return;
+  b.innerHTML = rcInner(); icons(); b.parentElement.scrollTop = 0;
+  if (anim && !reduced()) { b.classList.remove('rc-in'); void b.offsetWidth; b.classList.add('rc-in'); }
+  rcAfter();
+}
+function rcAfter() {
+  if (R.step === 'w') later(380, () => $('rcReal')?.focus());
+  if (R.step === 'done' && !R.res.some((x) => x.kind === 'adj' || x.kind === 'skip')) later(350, () => { const c = document.querySelector('.rc-check'); if (c) { const r = c.getBoundingClientRect(), a = app().getBoundingClientRect(); burst(r.left - a.left + r.width / 2, r.top - a.top + r.height / 2); } });
+}
+function rcProg() {
+  const n = R.list.length + (R.rest.length ? 1 : 0); if (n < 2) return '';
+  const cur = R.step === 'rest' ? R.list.length : R.i;
+  return `<div class="rc-prog">${Array.from({ length: n }, (_, j) => `<i class="${j < cur ? 'done' : j === cur ? 'now' : ''}"></i>`).join('')}</div>`;
+}
+const rcCauses = (gap) => gap < 0
+  ? [{ k: 'x', l: 'Tidak tercatat', cat: 'selisih', sub: 'Tidak tercatat', i: 'scale' }, { k: 'adm', l: 'Biaya admin bulanan', cat: 'biaya', sub: 'Admin bulanan', i: 'receipt' }, { k: 'fee', l: 'Biaya lain', cat: 'biaya', sub: 'Biaya lain', i: 'landmark' }]
+  : [{ k: 'x', l: 'Tidak tercatat', cat: 'selisih_in', sub: 'Tidak tercatat', i: 'scale' }, { k: 'bunga', l: 'Bunga', cat: 'masuk_lain', sub: 'Bunga', i: 'percent' }, { k: 'cb', l: 'Cashback', cat: 'masuk_lain', sub: 'Cashback', i: 'gift' }];
+function rcInner() {
+  const st = store.data.settings;
+  if (R.step === 'intro') {
+    const n = R.list.length, k = streak(st.reconWeeks || [], new Date());
+    return `<div class="rc-intro"><div class="rc-orb"><i data-lucide="scale"></i></div>
+      <h2>Minggu malam,<br>waktunya cocokkan saldo</h2>
+      <p>${n ? `${n} dompet bergerak sejak terakhir dicocokkan.` : 'Tidak ada dompet yang bergerak sejak terakhir dicocokkan.'} Buka aplikasi bank & e-wallet, kira-kira ${Math.max(1, Math.ceil((n + 1) / 2))} menit.</p>
+      ${n ? `<div class="rc-pills">${R.list.map((id, j) => `<span style="--c:${W(id).color};--i:${j}"><i></i>${esc(W(id).name)}</span>`).join('')}</div>` : ''}
+      ${k ? `<div class="rc-streak"><i data-lucide="flame"></i>${k} minggu berturut-turut. Jangan putus!</div>` : ''}</div>
+      <button class="primary" data-a="rcStart"><i data-lucide="play"></i>Mulai</button>
+      <button class="btn2 wide" data-a="rcSkipWeek">Lewati minggu ini</button>`;
+  }
+  if (R.step === 'w') {
+    const id = R.list[R.i], w = W(id), app2 = bal(id), last = rcLast(id), n = rcMoved(id);
+    return `${rcProg()}
+      <div class="rc-wcard" style="--c:${w.color}"><div class="rc-wtop"><span>${esc(w.group)}</span><i data-lucide="${WALLET_ICON[w.group]}"></i></div><b class="rc-wname">${esc(w.name)}</b>
+        <small>Menurut Do it Dip</small><div class="rc-app m">${rp(app2)}</div>
+        <small class="rc-meta">${last ? `${n} transaksi baru sejak dicocokkan ${dayLabel(dateOf(last.at), T()).toLowerCase()}` : 'Belum pernah dicocokkan'}</small></div>
+      <button class="rc-same" data-a="rcSame"><span class="ck"><i data-lucide="check"></i></span><span><b>Sama</b><small>Di ${esc(w.name)} juga ${rp(app2)}</small></span></button>
+      <div class="rc-or"><span>atau ketik saldo sebenarnya</span></div>
+      <input class="field amt-field" id="rcReal" inputmode="numeric" placeholder="Rp0" autocomplete="off" aria-label="Saldo sebenarnya di ${esc(w.name)}">
+      <div class="rc-live" id="rcLive"></div>
+      <button class="primary" id="rcGo" data-a="rcCheck" disabled><i data-lucide="scale"></i>Bandingkan</button>
+      <button class="rc-skip" data-a="rcSkipW">Lewati dompet ini</button>`;
+  }
+  if (R.step === 'gap') {
+    const id = R.list[R.i], w = W(id), app2 = bal(id), gap = R.real - app2, causes = rcCauses(gap);
+    if (!causes.some((c) => c.k === R.cause)) R.cause = 'x';
+    const since = rcSince(id) || Date.now() - 14 * 864e5;
+    const txs = sorted().filter((t) => (t.wallet === id || t.to === id) && Math.max(t.createdAt || 0, t.updatedAt || 0) > since).slice(0, 20);
+    const row = (t) => { const into = t.type === 'in' || (t.type === 'tf' && t.to === id); return `<div class="rc-tx"><span>${esc(dayLabel(t.date, T()))}</span><b>${esc(t.note)}</b><em class="m ${into ? 'in' : 'out'}">${into ? '+' : '−'}${rp(t.amount)}</em></div>`; };
+    return `${rcProg()}
+      <div class="rc-gapbox ${gap < 0 ? 'neg' : 'pos'}" style="--c:${w.color}"><small>Selisih di ${esc(w.name)}</small><b class="m">${sgn(gap)}</b>
+        <span>Catatan <em class="m">${rp(app2)}</em> · sebenarnya <em class="m">${rp(R.real)}</em></span>
+        <p>${gap < 0 ? 'Uang sebenarnya lebih sedikit. Biasanya ada pengeluaran yang belum dicatat.' : 'Uang sebenarnya lebih banyak. Mungkin ada pemasukan, cashback, atau bunga yang belum dicatat.'}</p></div>
+      <span class="lab">Ada yang lupa dicatat?</span>
+      <div class="fee-in rc-add"><input class="field" id="rcNl" placeholder="${gap < 0 ? 'mis. parkir 2rb; kopi 18rb' : 'mis. cashback 5rb'}" autocomplete="off"><button class="btn2" data-a="rcAdd"><i data-lucide="plus"></i>Catat</button></div>
+      <p class="form-note" style="margin-top:6px">Ditulis seperti biasa, otomatis dari ${esc(w.name)}. Selisihnya langsung berkurang.</p>
+      ${R.added.length ? `<div class="rc-added">${R.added.map((t) => `<span><i data-lucide="check"></i>${esc(t.note)} <b class="m">${rp(t.amount)}</b></span>`).join('')}</div>` : ''}
+      ${txs.length ? `<details class="rc-trace"><summary><i data-lucide="search"></i>Telusuri ${txs.length} transaksi ${esc(w.name)} ${rcSince(id) ? 'sejak terakhir cocok' : '2 minggu terakhir'}<i data-lucide="chevron-down"></i></summary><div class="rc-txs">${txs.map(row).join('')}</div></details>` : ''}
+      <span class="lab">Kalau tidak ketemu, catat ${sgn(gap)} sebagai</span>
+      <div class="hscroll">${causes.map((c) => `<button class="chip ${R.cause === c.k ? 'on' : ''}" data-a="rcCause" data-k="${c.k}"><i data-lucide="${c.i}"></i>${c.l}</button>`).join('')}</div>
+      <p class="form-note">${R.cause === 'x' ? `Masuk kategori <b>Selisih saldo</b>: ikut total ${gap < 0 ? 'pengeluaran' : 'pemasukan'}, tapi tidak dihitung terboros dan tidak masuk anggaran.` : 'Dicatat sebagai transaksi biasa hari ini.'}</p>
+      <button class="primary" data-a="rcAdjust"><i data-lucide="check"></i>Sesuaikan ${sgn(gap)}</button>
+      <button class="rc-skip" data-a="rcSkipW">Lewati dompet ini</button>`;
+  }
+  if (R.step === 'rest') {
+    return `${rcProg()}
+      <div class="rc-intro rc-small"><div class="rc-orb sm"><i data-lucide="check-check"></i></div><h2>Dompet yang tenang</h2><p>Tidak ada transaksi baru sejak terakhir cocok, jadi saldonya biasanya masih sama.</p></div>
+      <div class="card rc-rest">${R.rest.map((id) => `<div class="rc-rrow" style="--c:${W(id).color}"><i></i><span>${esc(W(id).name)}</span><b class="m">${rp(bal(id))}</b><button class="btn2" data-a="rcDiff" data-id="${id}">Beda</button></div>`).join('')}</div>
+      <button class="primary" data-a="rcRestSame"><i data-lucide="check-check"></i>Semua sama</button>
+      <button class="rc-skip" data-a="rcRestSkip">Lewati yang ini</button>`;
+  }
+  // done
+  const ok = R.res.filter((x) => x.kind === 'same' || x.kind === 'found').length, adj = R.res.filter((x) => x.kind === 'adj'), sk = R.res.filter((x) => x.kind === 'skip').length;
+  const found = R.res.filter((x) => x.kind === 'found').length, tot = adj.reduce((a, x) => a + x.gap, 0), k = streak(st.reconWeeks || [], new Date());
+  const perfect = !adj.length && !sk;
+  return `<div class="rc-done"><div class="rc-check ${perfect ? '' : 'soft'}"><svg viewBox="0 0 52 52"><circle cx="26" cy="26" r="24"/><path d="M15 27l7 7 15-16"/></svg></div>
+    <h2>${perfect ? (ok > 1 ? 'Semua cocok!' : 'Cocok!') : 'Beres!'}</h2>
+    <p>${perfect ? 'Catatan Do it Dip sama persis dengan saldo sebenarnya.' : sk && !ok && !adj.length ? 'Tidak apa-apa, bisa dicocokkan kapan saja dari tab Dompet.' : `Dompet yang dicocokkan sekarang sama dengan saldo sebenarnya.${sk ? ' Yang dilewati bisa dicocokkan kapan saja dari tab Dompet.' : ''}`}</p>
+    <div class="rc-sum">${ok ? `<div><i data-lucide="check"></i><b>${ok}</b> cocok${found ? ` · ${found} setelah mencatat yang terlupa` : ''}</div>` : ''}${adj.length ? `<div><i data-lucide="scale"></i><b>${adj.length}</b> disesuaikan <em class="m">${sgn(tot)}</em></div>` : ''}${sk ? `<div><i data-lucide="skip-forward"></i><b>${sk}</b> dilewati</div>` : ''}</div>
+    ${!R.only && k ? `<div class="rc-streak"><i data-lucide="flame"></i>${k} minggu berturut-turut</div>` : ''}</div>
+    <button class="primary" data-a="close"><i data-lucide="check"></i>Selesai</button>
+    <button class="btn2 wide" data-a="rcHistory"><i data-lucide="history"></i>Riwayat pencocokan</button>`;
+}
+const dateOf = (ms) => { const d = new Date(ms); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
+function rcNext() {
+  R.i++; R.real = null; R.added = []; R.cause = null;
+  if (R.i < R.list.length) R.step = 'w';
+  else if (R.rest.length) R.step = 'rest';
+  else rcFinish();
+  rcDraw(true);
+}
+function rcFinish() {
+  R.step = 'done';
+  if (!R.only) store.finishCheck(checkWeek(new Date()));
+  refresh();
+}
+function rcRecord(kind, app2, real) {
+  const id = R.list[R.i];
+  store.logCheck(id, app2, real, kind);
+  R.res.push({ id, kind, gap: real - app2 });
+}
+function rcLiveUpdate() {
+  const el = $('rcReal'); if (!el || !R) return;
+  const v = digitsOnly(el.value); el.value = v ? fmtN(v) : '';
+  const id = R.list[R.i], app2 = bal(id), real = Number(v), live = $('rcLive'), go = $('rcGo');
+  if (!v) { live.innerHTML = ''; live.className = 'rc-live'; go.disabled = true; go.innerHTML = '<i data-lucide="scale"></i>Bandingkan'; icons(); return; }
+  const gap = real - app2; go.disabled = false;
+  if (!gap) { live.className = 'rc-live ok'; live.innerHTML = '<i data-lucide="check"></i>Cocok!'; go.innerHTML = '<i data-lucide="check"></i>Cocok, lanjut'; }
+  else { live.className = 'rc-live ' + (gap < 0 ? 'neg' : 'pos'); live.innerHTML = `Selisih <b class="m">${sgn(gap)}</b> · uang di ${esc(W(id).name)} lebih ${gap < 0 ? 'sedikit' : 'banyak'} dari catatan`; go.innerHTML = '<i data-lucide="search"></i>Cari selisihnya'; }
+  icons();
+}
+function rcAdd() {
+  const id = R.list[R.i], text = ($('rcNl')?.value || '').trim(); if (!text) return toast('Tulis transaksinya dulu');
+  const items = parseText(text, { ...ctx(), defaults: { bank: id, cash: id } }).filter((p) => p.amount > 0);
+  if (!items.length) return toast('Nominalnya belum terbaca');
+  for (const p of items) {
+    const t = store.addTx({ date: p.date, type: p.type, cat: p.type === 'tf' ? null : p.cat, sub: p.type === 'tf' ? null : p.sub, amount: p.amount, wallet: p.wallet, to: p.type === 'tf' ? p.to : null, note: p.type === 'tf' ? tfNote(p) : p.note });
+    if (p.type === 'tf' && p.fee > 0) store.setFee(t.id, p.fee);
+    R.added.push(t);
+  }
+  refresh();
+  if (R.real - bal(id) === 0) { rcRecord('found', R.real, R.real); toast('Ketemu! Saldonya sekarang cocok'); rcNext(); return; }
+  rcDraw(); toast(items.length > 1 ? `${items.length} transaksi dicatat` : `Dicatat: ${items[0].note || 'transaksi'}`);
+}
+function rcAdjust() {
+  const id = R.list[R.i], w = W(id), app2 = bal(id), gap = R.real - app2, c = rcCauses(gap).find((x) => x.k === R.cause) || rcCauses(gap)[0];
+  if (!gap) { rcRecord(R.added.length ? 'found' : 'same', app2, R.real); rcNext(); return; }
+  store.addTx({ date: T(), type: gap < 0 ? 'out' : 'in', cat: c.cat, sub: c.sub, amount: Math.abs(gap), wallet: id, to: null, note: c.k === 'x' ? `Selisih saldo ${w.name}` : `${c.l} ${w.name}`, ...(c.k === 'x' ? { adj: true } : {}) });
+  rcRecord('adj', app2, R.real); refresh(); rcNext();
+}
+function sRcHistory() {
+  const g = logByMonth(store.data.settings.reconLog || []);
+  const kind = (e) => e.kind === 'same' ? 'Cocok' : e.kind === 'found' ? 'Cocok setelah mencatat yang terlupa' : `Disesuaikan ${sgn(e.gap)}`;
+  sheetKey = 'rchist'; openSheet('Riwayat pencocokan', g.length ? g.map((m) => `<div class="sec-h"><h3>${monthName(m.mk)}</h3><small>${m.n}× · ${m.adjusted ? `selisih ${sgn(m.adjusted)}` : 'tanpa selisih'}</small></div>
+    <div class="card rc-hist">${m.items.map((e) => `<div class="rc-hrow" style="--c:${W(e.wallet).color}"><i class="dot"></i><div><b>${esc(W(e.wallet).name)}</b><small>${esc(dayLabel(dateOf(e.at), T()))} · ${kind(e)}</small></div><em class="m">${rp(e.real)}</em></div>`).join('')}</div>`).join('')
+    : '<div class="empty-card"><b>Belum ada pencocokan</b>Cocokkan saldo dompet dengan saldo di aplikasi bank & e-wallet. Hasilnya tercatat di sini.</div>');
+}
+/** The weekly offer: once per session, after the lock screen, when nothing else is open. */
+function maybeOfferRecon() {
+  if (S.rcOffered || !store.data.settings.onboarded) return;
+  const key = reconDue(new Date(), store.data.settings); if (!key) return;
+  if (document.body.classList.contains('desk') && !document.body.classList.contains('phone-open')) return; // the laptop shows its own banner
+  const go = (n = 0) => {
+    if (S.rcOffered || n > 40 || !reconDue(new Date(), store.data.settings)) return;
+    if ((document.getElementById('lock') && !document.getElementById('lock').hidden) || $('layer').innerHTML || !$('composer').hidden || !$('onb').hidden) { setTimeout(() => go(n + 1), 1500); return; }
+    S.rcOffered = true; sRecon({ weekly: true, week: key });
+  };
+  setTimeout(go, 1400);
 }
 
 /* ---- one subcategory: name, keywords, move, merge, delete ---- */
@@ -1908,6 +2133,7 @@ function bindEvents() {
   document.addEventListener('input', (e) => {
     const id = e.target.id;
     if (id === 'nl') { S.nl = e.target.value; S.nlPick = null; syncHL(); refreshPreview(); }
+    if (id === 'rcReal') rcLiveUpdate();
     if (id === 'mnote') S.m.note = e.target.value;
     if (id === 'mdate' && e.target.value) { S.m.date = e.target.value > T() ? T() : e.target.value; const sc = $('cobody').scrollTop; rerenderMode(); $('cobody').scrollTop = sc; }
     if (id === 'obName') S.ob.name = e.target.value;
@@ -1942,6 +2168,8 @@ function bindEvents() {
   document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.id === 'impPw') { e.preventDefault(); onClick({ target: document.querySelector('[data-a="impPw"]') }); } });
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') { if ($('layer').innerHTML) closeSheet(); else if (!$('composer').hidden) closeComposer(); else if (!$('drill').hidden) closeDrill(); return; }
+    if (e.key === 'Enter' && e.target.id === 'rcReal') { e.preventDefault(); const b = $('rcGo'); if (b && !b.disabled) b.click(); return; }
+    if (e.key === 'Enter' && e.target.id === 'rcNl') { e.preventDefault(); rcAdd(); return; }
     if (e.key === 'Enter' && e.target.id === 'cfSub') { e.preventDefault(); cfAddSub(); return; }
     if (e.key === 'Enter' && e.target.id === 'sbName') { e.preventDefault(); sbRename(); return; }
     if (e.key === 'Enter' && e.target.id === 'sbWord') { e.preventDefault(); sbWordAdd(); return; }
@@ -1978,6 +2206,7 @@ function bindEvents() {
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) { if (cloudOn() && store.data.settings.cloudDirty) pushNow(); return; }
     if (store.data.settings.onboarded && $('composer').hidden) refresh();
+    maybeOfferRecon();
     if (cloudOn()) syncNow(false); else runRecurring();
     if (!S.pricesAt || Date.now() - S.pricesAt > 3 * 3600e3) refreshPrices(false);
   });
@@ -2070,11 +2299,12 @@ function onClick(e) {
       if (t.debt) { toast('Catat pembayaran lewat catatan utang di Dompet'); break; }
       if (t.inv) { toast('Catat beli/jual lewat aset investasi di Dompet'); break; }
       const n = store.addTx({ date: T(), type: t.type, cat: t.cat, sub: t.sub, amount: t.amount, wallet: t.wallet, to: t.to, note: t.note }); markFresh([n]);
+      if (t.type === 'tf' && store.feeOf(t.id)) store.setFee(n.id, store.feeOf(t.id));
       refresh(); toast(`Diduplikat: ${rp(t.amount)} · hari ini`); break;
     }
     case 'edit': {
       const t = TX().find((x) => x.id === d.id); if (!t) break; closeSheet(true);
-      S.editId = t.id; S.m = { type: t.type, amt: String(t.amount), cat: t.cat || 'makan', sub: t.sub || CATS.makan.subs[0], wallet: t.wallet, to: t.to || defaults().cash, date: t.date, note: t.note, justTyped: false };
+      S.editId = t.id; S.m = { type: t.type, amt: String(t.amount), cat: t.cat || 'makan', sub: t.sub || CATS.makan.subs[0], wallet: t.wallet, to: t.to || defaults().cash, date: t.date, note: t.note, justTyped: false, fee: t.type === 'tf' ? store.feeOf(t.id) : null };
       openComposer('manual', app().clientWidth / 2, app().clientHeight / 2); break;
     }
     /* kalimat */
@@ -2123,11 +2353,47 @@ function onClick(e) {
       });
       break;
     }
+    /* balance check */
+    case 'rcOpen': sRecon({}); break;
+    case 'rcOne': sRecon({ only: d.id }); break;
+    case 'rcHistory': sRcHistory(); break;
+    case 'rcStart': R.step = R.list.length ? 'w' : R.rest.length ? 'rest' : 'done'; if (R.step === 'done') rcFinish(); rcDraw(true); break;
+    case 'rcSkipWeek': store.setSetting('reconSkip', R.week || reconDue(new Date(), store.data.settings) || ''); closeSheet(); toast('Dilewati. Sampai Minggu depan'); break;
+    case 'rcSame': { const id = R.list[R.i], v = bal(id); rcRecord('same', v, v); rcNext(); break; }
+    case 'rcCheck': {
+      const real = Number(digitsOnly($('rcReal')?.value || '')), id = R.list[R.i], v = bal(id);
+      if (real === v) { rcRecord('same', v, v); rcNext(); break; }
+      R.real = real; R.step = 'gap'; rcDraw(true); break;
+    }
+    case 'rcAdd': rcAdd(); break;
+    case 'rcCause': R.cause = d.k; rcDraw(); break;
+    case 'rcAdjust': rcAdjust(); break;
+    case 'rcSkipW': R.res.push({ id: R.list[R.i], kind: 'skip', gap: 0 }); rcNext(); break;
+    case 'rcDiff': R.rest = R.rest.filter((x) => x !== d.id); R.list.push(d.id); R.i = R.list.length - 1; R.step = 'w'; rcDraw(true); break;
+    case 'rcRestSame': for (const id of R.rest) { const v = bal(id); store.logCheck(id, v, v, 'same'); R.res.push({ id, kind: 'same', gap: 0 }); } R.rest = []; rcFinish(); rcDraw(true); break;
+    case 'rcRestSkip': for (const id of R.rest) R.res.push({ id, kind: 'skip', gap: 0 }); R.rest = []; rcFinish(); rcDraw(true); break;
+    case 'pvfee': S.nlFee = S.nlFee === Number(d.i) ? null : Number(d.i); S.nlPick = null; refreshPreview(); break;
+    case 'pvfeeSet': case 'pvfeeIn': {
+      const i = Number(d.i), p = nlItems()[i]; if (!p) break;
+      const v = a === 'pvfeeSet' ? Number(d.v) : Number(digitsOnly($('pvFeeIn')?.value || ''));
+      if (a === 'pvfeeIn' && !v) { toast('Tulis jumlah biayanya'); break; }
+      S.nlOv[i] = { ...(S.nlOv[i] || {}), raw: p.raw, fee: v }; S.nlFee = null; refreshPreview(); break;
+    }
+    case 'pvfeeKeep': {
+      const p = nlItems()[Number(d.i)]; if (!p) break;
+      store.rememberFee(p.wallet, p.to, p.fee || 0); refreshPreview();
+      toast(p.fee ? `${W(p.wallet).name} → ${W(p.to).name} biasanya ${rp(p.fee)}` : `${W(p.wallet).name} → ${W(p.to).name} biasanya gratis`); break;
+    }
     case 'pvwal': { const i = Number(d.i), p = nlItems()[i], ks = WL().map((w) => w.id), nx = ks[(ks.indexOf(p.wallet) + 1) % ks.length]; S.nlOv[i] = { ...(S.nlOv[i] || {}), raw: p.raw, wallet: nx }; refreshPreview(); break; }
     case 'saveNL': {
       const items = nlItems().filter((p) => p.amount > 0); if (!items.length) break;
       const src = document.querySelector('.pv-amt:not(.none)') || el;
-      const added = items.map((p) => store.addTx({ date: p.date, type: p.type, cat: p.type === 'tf' ? null : p.cat, sub: p.type === 'tf' ? null : p.sub, amount: p.amount, wallet: p.wallet, to: p.type === 'tf' ? p.to : null, note: p.note })); markFresh(added);
+      const added = items.map((p) => {
+        const t = store.addTx({ date: p.date, type: p.type, cat: p.type === 'tf' ? null : p.cat, sub: p.type === 'tf' ? null : p.sub, amount: p.amount, wallet: p.wallet, to: p.type === 'tf' ? p.to : null, note: p.note });
+        // the admin fee rides along; the first fee typed for a route becomes its usual fee
+        if (p.type === 'tf' && p.fee > 0) { store.setFee(t.id, p.fee); if (p.feeMem == null) store.rememberFee(p.wallet, p.to, p.fee); }
+        return t;
+      }); markFresh(added); S.nlFee = null;
       const one = items[0]; S.nl = ''; S.nlOv = {}; S.nlPick = null; S.lastSig = [];
       celebrate(items.length > 1 ? `${items.length} transaksi` : (one.type === 'in' ? '+' : '') + rp(one.amount), one.type, src, items.length > 1 ? `${items.length} transaksi tercatat` : `Tercatat: ${rp(one.amount)} · ${one.type === 'tf' ? 'Transfer' : CATS[one.cat].n}`);
       break;
@@ -2146,12 +2412,17 @@ function onClick(e) {
       const r = el.getBoundingClientRect(), rp2 = document.createElement('span'); rp2.className = 'ripple'; rp2.style.left = (e.clientX || r.left + r.width / 2) - r.left + 'px'; rp2.style.top = (e.clientY || r.top + r.height / 2) - r.top + 'px'; el.appendChild(rp2); setTimeout(() => rp2.remove(), 520);
       break;
     }
+    case 'mfee': { const m = S.m; if (d.v === 'x') m.feeOther = !m.feeOther; else { m.fee = Number(d.v); m.feeOther = false; } const sc = $('cobody').scrollTop; rerenderMode(); $('cobody').scrollTop = sc; if (m.feeOther) later(50, () => $('mFeeIn')?.focus()); break; }
+    case 'mfeeIn': { const v = Number(digitsOnly($('mFeeIn')?.value || '')); if (!v) { toast('Tulis jumlah biayanya'); break; } S.m.fee = v; S.m.feeOther = false; const sc = $('cobody').scrollTop; rerenderMode(); $('cobody').scrollTop = sc; break; }
+    case 'mfeeKeep': { const m = S.m, f = mFee(m); store.rememberFee(m.wallet, m.to, f); const sc = $('cobody').scrollTop; rerenderMode(); $('cobody').scrollTop = sc; toast(f ? `${W(m.wallet).name} → ${W(m.to).name} biasanya ${rp(f)}` : `${W(m.wallet).name} → ${W(m.to).name} biasanya gratis`); break; }
     case 'saveM': {
       const m = S.m, amt = Number(m.amt); if (!amt) break; if (m.type === 'tf' && m.wallet === m.to) { toast('Pilih dompet tujuan yang berbeda'); break; }
       const note = m.note.trim() || (m.type === 'tf' ? tfNote({ note: 'Transfer', to: m.to }) : m.sub);
       const rec = { date: m.date, type: m.type, cat: m.type === 'tf' ? null : m.cat, sub: m.type === 'tf' ? null : m.sub, amount: amt, wallet: m.wallet, to: m.type === 'tf' ? m.to : null, note };
-      if (S.editId) { const t = store.updateTx(S.editId, rec); if (t) markFresh([t]); S.m = null; closeComposer(); refresh(); toast('Perubahan disimpan'); break; }
+      const fee = m.type === 'tf' ? mFee(m) : 0, mem = m.type === 'tf' ? store.routeFee(m.wallet, m.to) : null;
+      if (S.editId) { const t = store.updateTx(S.editId, rec); if (t) { if (t.type === 'tf') store.setFee(t.id, fee); markFresh([t]); } S.m = null; closeComposer(); refresh(); toast('Perubahan disimpan'); break; }
       const t = store.addTx(rec); markFresh([t]);
+      if (m.type === 'tf' && fee > 0) { store.setFee(t.id, fee); if (mem == null) store.rememberFee(m.wallet, m.to, fee); }
       const src = $('mamt'); S.m = null; celebrate((m.type === 'in' ? '+' : '') + rp(amt), m.type, src, `Tercatat: ${rp(amt)}`); break;
     }
     /* online backup */
@@ -2210,14 +2481,21 @@ function onClick(e) {
     case 'impAll': case 'impNone': { S.imp.rows.forEach((r) => (r.on = a === 'impAll')); const sc = $('cobody').scrollTop; rerenderMode(); $('cobody').scrollTop = sc; break; }
     case 'impPick': { S.imp.pick = S.imp.pick === Number(d.i) ? null : Number(d.i); const sc = $('cobody').scrollTop; rerenderMode(); $('cobody').scrollTop = sc; break; }
     case 'impSet': {
-      const r = S.imp.rows[Number(d.i)]; r.manual = true;
+      const r = S.imp.rows[Number(d.i)]; r.manual = true; later(0, joinImportFees);
       if (d.to) r.g = { ...r.g, type: 'tf', cat: null, sub: null, to: d.to, note: (W(d.to).group === 'E-wallet' ? 'Isi saldo ' : 'Transfer ke ') + W(d.to).name };
       else r.g = { ...r.g, type: CATS[d.cat].inc ? 'in' : 'out', cat: d.cat, sub: CATS[d.cat].subs[0], to: null };
       S.imp.pick = null; const sc = $('cobody').scrollTop; rerenderMode(); $('cobody').scrollTop = sc; break;
     }
     case 'impSave': {
       const src = S.imp.wallet, rows = S.imp.rows.filter((r) => r.on); if (!rows.length) break;
-      const added = rows.map((r) => store.addTx({ date: r.date, type: r.g.type, cat: r.g.type === 'tf' ? null : r.g.cat, sub: r.g.type === 'tf' ? null : r.g.sub, amount: r.amount, wallet: src, to: r.g.type === 'tf' ? r.g.to : null, note: r.g.note }));
+      // a fee line joined to a transfer that is also imported is saved as that transfer's fee, not on its own
+      const all = S.imp.rows, joined = (r) => r.feeTo != null && all[r.feeTo]?.on;
+      const added = rows.filter((r) => !joined(r)).map((r) => {
+        const t = store.addTx({ date: r.date, type: r.g.type, cat: r.g.type === 'tf' ? null : r.g.cat, sub: r.g.type === 'tf' ? null : r.g.sub, amount: r.amount, wallet: src, to: r.g.type === 'tf' ? r.g.to : null, note: r.g.note });
+        const fee = all.find((x) => x.on && x.feeTo === all.indexOf(r));
+        if (t.type === 'tf' && fee) store.setFee(t.id, fee.amount);
+        return t;
+      });
       markFresh(added); const n = added.length; S.imp = { phase: 'idle', wallet: src, rows: [], pick: null };
       celebrate(`${n} transaksi`, 'tf', el, `${n} transaksi diimpor dari ${W(src).name}`); break;
     }
@@ -2392,7 +2670,7 @@ export async function start() {
   app().innerHTML = SHELL;
   PANELS = [0, 1, 2, 3].map((i) => $('p' + i));
   bindEvents(); bindTrack(); bindDrill();
-  initDesk({ icons, onPhoneShown, exportExcel });
+  initDesk({ icons, onPhoneShown, exportExcel, recon: () => { const k = reconDue(new Date(), store.data.settings); S.rcOffered = true; sRecon(k ? { weekly: true, week: k } : {}); } });
   initLock({ icons, toast, onWipe: async () => { await store.wipe(); afterDataReset(); } });
   initStories({ icons, toast, goRekap: () => goTab(1) });
   if (store.data.settings.onboarded) lockNow(); // lock screen first, before anything is visible
@@ -2408,4 +2686,5 @@ export async function start() {
   if (!store.data.settings.onboarded) { showOnboarding(); return; }
   setTimeout(() => { S.dispTotal = heroVal(); setOdo($('odo'), S.dispTotal); }, 450);
   setTimeout(() => app().classList.remove('boot'), 1600);
+  maybeOfferRecon();
 }
