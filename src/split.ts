@@ -13,13 +13,16 @@ export interface SplitLine {
   me: number;
   pa: number;
   /** Shared by the table: divided equally among `n` people (default: everyone), mine/partner's when ticked. */
+  /** Category of the product (per-item categories), carried to the parts. */
+  cat?: string;
+  sub?: string;
   shared?: boolean;
   shMe?: boolean;
   shPa?: boolean;
   n?: number;
 }
 export type ExtraMode = 'prop' | 'equal';
-export interface SplitItem { name: string; amount: number; qty?: number }
+export interface SplitItem { name: string; amount: number; qty?: number; cat?: string; sub?: string }
 export interface SplitResult {
   sub: number; extra: number;
   meSub: number; paSub: number;
@@ -44,10 +47,10 @@ function itemsOf(lines: SplitLine[], who: 'me' | 'pa', people: number): SplitIte
   const out: SplitItem[] = [];
   for (const l of lines) {
     const v = lineShare(l, who, people); if (!(v > 0)) continue;
-    const q = pieces(l), p = who === 'me' ? l.me : l.pa;
-    if (l.shared) out.push({ name: `${l.name} (bagi ${Math.max(1, l.n || people)})`, amount: Math.round(v) });
-    else if (q > 1 && p < q) out.push({ name: l.name, amount: Math.round(v), ...(p > 1 ? { qty: p } : {}) });
-    else out.push({ name: l.name, amount: Math.round(v), ...(q > 1 ? { qty: q } : {}) });
+    const q = pieces(l), p = who === 'me' ? l.me : l.pa, cs = l.cat && l.sub ? { cat: l.cat, sub: l.sub } : {};
+    if (l.shared) out.push({ name: `${l.name} (bagi ${Math.max(1, l.n || people)})`, amount: Math.round(v), ...cs });
+    else if (q > 1 && p < q) out.push({ name: l.name, amount: Math.round(v), ...(p > 1 ? { qty: p } : {}), ...cs });
+    else out.push({ name: l.name, amount: Math.round(v), ...(q > 1 ? { qty: q } : {}), ...cs });
   }
   return out;
 }

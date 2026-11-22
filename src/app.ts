@@ -5,7 +5,7 @@ import {
   createIcons, House, ChartPie, Wallet as WalletIcon, Settings as SettingsIcon, Plus, Sparkles, BookOpen, ChevronDown, Eye, EyeOff,
   ArrowDownLeft, ArrowUpRight, ArrowDown, ArrowRight, Keyboard, Utensils, Fuel, ShoppingBag, Zap, HeartPulse, GraduationCap,
   HandHeart, LayoutGrid, Briefcase, Gift, Coins, ArrowLeftRight, Landmark, Smartphone, Banknote, ChevronLeft, ChevronRight,
-  PiggyBank, TrendingUp, TrendingDown, ShieldCheck, X, Check, Calendar, Info, Brain, Settings2, Pin, Scale, CheckCheck, Search, History, Merge, Percent, Send, Minus, UserPlus, Inbox, Delete, Copy, Trash2, Lock, Tags,
+  PiggyBank, TrendingUp, TrendingDown, ShieldCheck, X, Check, Calendar, Info, Brain, Settings2, Pin, Scale, CheckCheck, Search, History, Merge, Percent, Send, Minus, UserPlus, Inbox, Tag, Delete, Copy, Trash2, Lock, Tags,
   CloudUpload, Download, Upload, MonitorSmartphone, Sun, Moon, User, Laptop, Store, Users, Layers, Pointer, Pencil, Palette,
   Presentation, Minimize, Flame, Clapperboard, Camera, ImagePlus, FileSpreadsheet, ScanLine, Receipt, KeyRound, TriangleAlert, RotateCcw,
   ScanFace, PartyPopper, Play, Hourglass, CloudDownload, RefreshCw, LogOut, Mail, LogIn, Repeat, FileDown, SkipForward, CalendarClock,
@@ -24,7 +24,8 @@ import { ALL_TYPES, ASSET_TYPES, buyTx, incomeTx, isInvWallet, parseDec, portfol
 import { extract, NeedPassword } from './filetext.ts';
 import { guessRow, linesToStatement, rowsToStatement } from './statement.ts';
 import { KW, kwBest } from './model.ts';
-import { buildHistory } from './smart.ts';
+import { buildHistory, histHit } from './smart.ts';
+import { buildItemHistory, foldReceipts, groupByCat, itemKey } from './itemcats.ts';
 import { feeSummary, foldFees } from './fees.ts';
 import { checkWeek, logByMonth, movedSince, reconDue, streak } from './recon.ts';
 import { lineShare, splitBill, unitPrice } from './split.ts';
@@ -40,7 +41,7 @@ const ICONS = {
   House, ChartPie, Wallet: WalletIcon, Settings: SettingsIcon, Plus, Sparkles, BookOpen, ChevronDown, Eye, EyeOff, ArrowDownLeft,
   ArrowUpRight, ArrowDown, ArrowRight, Keyboard, Utensils, Fuel, ShoppingBag, Zap, HeartPulse, GraduationCap, HandHeart, LayoutGrid,
   Briefcase, Gift, Coins, ArrowLeftRight, Landmark, Smartphone, Banknote, ChevronLeft, ChevronRight, PiggyBank, TrendingUp,
-  TrendingDown, ShieldCheck, X, Check, Calendar, Info, Brain, Settings2, Pin, Scale, CheckCheck, Search, History, Merge, Percent, Send, Minus, UserPlus, Inbox, Delete, Copy, Trash2, Lock, Tags, CloudUpload, Download, Upload,
+  TrendingDown, ShieldCheck, X, Check, Calendar, Info, Brain, Settings2, Pin, Scale, CheckCheck, Search, History, Merge, Percent, Send, Minus, UserPlus, Inbox, Tag, Delete, Copy, Trash2, Lock, Tags, CloudUpload, Download, Upload,
   MonitorSmartphone, Sun, Moon, User, Laptop, Store, Users, Layers, Pointer, Pencil, Palette, Presentation, Minimize, Flame, Clapperboard,
   Camera, ImagePlus, FileSpreadsheet, ScanLine, Receipt, KeyRound, TriangleAlert, RotateCcw,
   ScanFace, PartyPopper, Play, Hourglass, CloudDownload, RefreshCw, LogOut, Mail, LogIn, Repeat, FileDown, SkipForward, CalendarClock,
@@ -149,6 +150,10 @@ function countUp(el) {
 
 /* ================= views ================= */
 function txRow(t) {
+  if (t.parts) {
+    const tot = t.parts.reduce((a, x) => a + x.amount, 0), cats = [...new Set(t.parts.map((x) => x.cat))];
+    return `<button class="tx rc-row${t.fresh ? ' fresh' : ''}" data-a="rcptOpen" data-id="${t.rcpt}"><span class="ic rc-stack" style="--c:${CATS[cats[0]]?.c || '#94A3B8'};--c2:${CATS[cats[1]]?.c || '#94A3B8'}"><i data-lucide="receipt"></i></span><span class="tx-main"><b>${esc(t.rcptName || 'Struk')}</b><small>${t.parts.length} kategori · ${esc(cats.map((c) => CATS[c]?.n || c).join(', '))}</small></span><span class="amt out">−${money(tot)}</span></button>`;
+  }
   const c = catOf(t), w = W(t.wallet), sign = t.type === 'in' ? '+' : t.type === 'out' ? '−' : '';
   const fee = t.type === 'tf' ? feeMap()[t.id] : null;
   const meta = t.type === 'tf' ? `${esc(w.name)} → ${esc(W(t.to).name)}${fee ? ` <span class="fee-tag">+ admin ${money(fee.amount)}</span>` : ''}` : `${esc(t.sub)} · ${esc(w.name)}${t.split ? ` <span class="fee-tag">· bagi ${t.split.n}</span>` : ''}${t.from ? ` <span class="fee-tag">· dari ${esc(t.from)}</span>` : ''}`;
@@ -158,7 +163,7 @@ function grouped(list) {
   const g = {}; list.forEach((t) => { (g[t.date] = g[t.date] || []).push(t); });
   return Object.keys(g).sort().reverse().map((d) => {
     const out = g[d].filter((t) => t.type === 'out').reduce((s, t) => s + t.amount, 0);
-    return `<div class="day-h"><span>${dayLabel(d, T())}</span><span class="num">${out ? '−' + money(out) : ''}</span></div><div class="list">${foldFees(g[d]).map(txRow).join('')}</div>`;
+    return `<div class="day-h"><span>${dayLabel(d, T())}</span><span class="num">${out ? '−' + money(out) : ''}</span></div><div class="list">${foldReceipts(foldFees(g[d])).map(txRow).join('')}</div>`;
   }).join('');
 }
 function timeOfDay() { const h = new Date().getHours(); if (h >= 4 && h < 10) return ['Selamat pagi', 'morning']; if (h >= 10 && h < 15) return ['Selamat siang', 'day']; if (h >= 15 && h < 18) return ['Selamat sore', 'dusk']; return ['Selamat malam', 'night']; }
@@ -288,7 +293,7 @@ function dayDetailHTML(mk) {
     <div class="tiles dd-tiles"><div class="tile in"><small>Masuk</small><b>${inc ? shortTxt(inc) : '–'}</b></div><div class="tile out"><small>Keluar</small><b>${out ? shortTxt(out) : '–'}</b></div><div class="tile"><small>Transaksi</small><b>${list.length}</b></div></div>
     ${fx ? `<p class="dd-fx"><i data-lucide="lock"></i>Tetap ${rp(fx)} · harian ${rp(out - fx)}</p>` : ''}
     ${cats.length ? `<div class="dd-cats">${cats.map(([k, v]) => `<div style="--c:${CATS[k]?.c || '#94A3B8'}"><span>${esc(CATS[k]?.n || k)}</span><i style="width:${Math.max(4, (v / out) * 100).toFixed(0)}%"></i><em>${shortTxt(v)}</em></div>`).join('')}</div>` : ''}
-    ${list.length ? `<div class="list">${foldFees(list).map(txRow).join('')}</div>` : '<div class="empty">Tidak ada transaksi pada hari ini.</div>'}`;
+    ${list.length ? `<div class="list">${foldReceipts(foldFees(list)).map(txRow).join('')}</div>` : '<div class="empty">Tidak ada transaksi pada hari ini.</div>'}`;
 }
 function selectDay(day) {
   S.selDay = day; PANELS[1].querySelectorAll('.bar, #calCard .cal-d').forEach((b) => b.classList.toggle('sel', b.dataset.d === day));
@@ -774,16 +779,17 @@ function mStruk() {
       : `<div class="st-check bad"><i data-lucide="triangle-alert"></i><span><b>Struk kurang jelas terbaca.</b> Periksa angkanya, atau foto ulang lebih dekat, dari atas, di tempat terang, tanpa jari menutupi tulisan.</span></div>`;
   return `<div class="st-done"><div class="st-img small"><img src="${s.img}" alt="Foto struk"></div><div><span class="type out">Pengeluaran</span><p class="muted" style="margin:6px 0 0">${f.items.length} produk terbaca</p><small class="st-via">${s.via === 'ai' ? `<i data-lucide="sparkles"></i>Dibaca AI · ${esc((r.model || 'Gemini').replace('gemini-', 'Gemini ').replace(/-/g, ' '))}` : `<i data-lucide="scan-line"></i>Dibaca OCR di HP${s.why ? ` · ${esc(s.why)}` : ''}`}</small></div></div>
   ${banner}
+  <button class="sp-toggle ic-toggle ${f.perItem ? 'on' : ''}" data-a="icToggle"><span class="ic"><i data-lucide="tags"></i></span><span><b>Kategori per item</b><small>${f.perItem ? `${new Set(f.items.filter(icValid).map((it) => it.cat + '|' + it.sub)).size} kategori · ketuk chip untuk mengganti` : 'Barangnya beda-beda kategori? Kategorikan tiap item'}</small></span><span class="sw ${f.perItem ? 'on' : ''}"><i></i></span></button>
   <button class="sp-toggle ${f.split ? 'on' : ''}" data-a="spToggle"><span class="ic"><i data-lucide="users"></i></span><span><b>Bayar bersama</b><small>${f.split ? 'Ketuk lagi untuk kembali mengubah produk' : 'Struk ini juga berisi pesanan orang lain? Tandai item milik Anda'}</small></span><span class="sw ${f.split ? 'on' : ''}"><i></i></span></button>
-  ${f.split ? spHTML(spSync(f), 'st') : `<span class="lab">Produk</span>
+  ${f.split ? spHTML(spSync(f), 'st') : f.perItem ? icHTML('st') : `<span class="lab">Produk</span>
   <div class="st-items">${f.items.map((it, i) => `<div class="st-item"><input class="field" id="sti-n-${i}" value="${esc(it.name)}" placeholder="Nama produk" autocomplete="off" aria-label="Nama produk ${i + 1}"><input class="field" id="sti-a-${i}" inputmode="numeric" value="${it.amount ? fmtN(it.amount) : ''}" placeholder="Rp0" autocomplete="off" aria-label="Harga produk ${i + 1}"><button class="icon-btn" data-a="stiDel" data-i="${i}" aria-label="Hapus produk ${i + 1}"><i data-lucide="x"></i></button></div>`).join('')}
     <button class="btn2" style="width:100%" data-a="stiAdd"><i data-lucide="plus"></i>Tambah produk yang terlewat</button></div>
   <div class="st-sum" id="stSum">${stSumHTML(f)}</div>`}
   <span class="lab">${f.split ? 'Total struk (semua orang)' : 'Total dibayar'}</span><input class="field amt-field" id="stAmt" inputmode="numeric" value="${f.amount ? fmtN(f.amount) : ''}" placeholder="Rp0" autocomplete="off">
   <span class="lab">Catatan</span><input class="field" id="stNote" maxlength="60" value="${esc(f.note)}" autocomplete="off">
   <span class="lab">Tanggal${r.date ? '' : ' <em class="from-receipt warn">· tidak terbaca, diisi hari ini</em>'}</span><input class="field" type="date" id="stDate" value="${f.date}" max="${T()}">
-  <span class="lab">Kategori</span><div class="hscroll">${OUTC().map((k) => `<button class="chip cat ${f.cat === k ? 'on' : ''}" style="--c:${CATS[k].c}" data-a="stset" data-k="cat" data-v="${k}" data-lp="cat" data-cat="${k}"><i data-lucide="${CATS[k].i}"></i>${CATS[k].n}</button>`).join('')}<button class="chip add" data-a="catNewCo" data-inc="0"><i data-lucide="plus"></i>Kategori baru</button></div>
-  <div class="hscroll">${subsOrd(f.cat).map((x) => subChip(f.cat, x, f.sub === x, `data-a="stset" data-k="sub" data-v="${esc(x)}"`)).join('')}${subTools(f.cat, 'st')}</div>
+  ${f.perItem ? '' : `<span class="lab">Kategori</span>`}<div class="hscroll" ${f.perItem ? 'hidden' : ''}>${OUTC().map((k) => `<button class="chip cat ${f.cat === k ? 'on' : ''}" style="--c:${CATS[k].c}" data-a="stset" data-k="cat" data-v="${k}" data-lp="cat" data-cat="${k}"><i data-lucide="${CATS[k].i}"></i>${CATS[k].n}</button>`).join('')}<button class="chip add" data-a="catNewCo" data-inc="0"><i data-lucide="plus"></i>Kategori baru</button></div>
+  <div class="hscroll" ${f.perItem ? 'hidden' : ''}>${subsOrd(f.cat).map((x) => subChip(f.cat, x, f.sub === x, `data-a="stset" data-k="sub" data-v="${esc(x)}"`)).join('')}${subTools(f.cat, 'st')}</div>
   <span class="lab">Dibayar pakai${r.pay ? ` <em class="from-receipt">· struk: ${PAY_LABEL[r.pay] || r.pay}</em>` : ''}</span><div class="hscroll">${wchips}</div>
   <details class="st-more"><summary>Teks mentah dari foto</summary><pre>${esc(r.lines.join('\n') || '(kosong)')}</pre></details>
   ${f.split ? spSaveBtn(f.split, f.amount, 'saveStruk') : `<button class="primary" data-a="saveStruk" ${f.amount ? '' : 'disabled'}><i data-lucide="check"></i>Simpan dari struk</button>`}
@@ -802,7 +808,8 @@ async function startStruk(file) {
     const prog = (p, l) => { mine.progress = p; mine.label = l; const b = $('stProg'), lb = $('stLbl'); if (b) b.style.width = Math.round(p * 100) + '%'; if (lb) lb.textContent = l; };
     let res = null, via = 'ocr', why = '';
     if (aiReady()) {
-      try { res = await readWithAI(file, T(), prog, cloud.readReceipt); via = 'ai'; }
+      const info = aiCatInfo();
+      try { res = await readWithAI(file, T(), prog, (img, mime, model) => cloud.readReceipt(img, mime, model, info)); via = 'ai'; }
       catch (e) { why = cloud.cloudError(e); console.error(e); }
     } else if (store.data.settings.receiptMode !== 'ocr') why = !navigator.onLine ? 'Sedang offline' : 'Cadangan online belum tersambung';
     if (!res) { if (why) prog(0.05, why + ' — memakai OCR di HP…'); res = (await scanWithTesseract(file, T(), prog)).result; }
@@ -812,7 +819,10 @@ async function startStruk(file) {
     if (!res.lines.length) throw new Error('empty');
     const items = res.items.map((it) => ({ name: productLabel(it.name, it.qty), amount: it.amount, qty: it.qty, ...(it.unit ? { unit: it.unit } : {}) }));
     const shop = via === 'ai' || res.storeCat ? res.merchant || '' : '';
-    const form = { amount: res.total || stSum({ items }) || 0, items, shop, cat: g.cat };
+    items.forEach((it, i) => Object.assign(it, guessItem({ name: it.name, cat: res.items[i]?.cat, sub: res.items[i]?.sub }, g)));
+    IC.pick = null; IC.cat = null; IC.sel.clear();
+    const kinds = new Set(items.map((it) => it.cat + '|' + it.sub));
+    const form = { amount: res.total || stSum({ items }) || 0, items, shop, cat: g.cat, perItem: kinds.size > 1 };
     S.struk = { ...mine, phase: 'done', via, why, res, form: { ...form, note: receiptNote(form), noteEdited: false, date: res.date || T(), cat: g.cat, sub: g.sub, wallet: receiptWallet(res.pay) } };
   } catch (e) {
     if (S.struk !== mine) return;
@@ -1057,7 +1067,7 @@ function sTx(id) {
   <div class="card" style="padding:4px 14px">
     <div class="kv" style="border-top:0"><span>Kategori</span><b>${t.type === 'tf' ? (t.debt ? c.n : 'Transfer') : `${c.n} · ${esc(t.sub)}`}</b></div>
     <div class="kv"><span>${t.type === 'tf' ? 'Dari → Ke' : 'Dompet'}</span><b>${t.type === 'tf' ? `${esc(w.name)} → ${esc(W(t.to).name)}` : esc(w.name)}</b></div>${t.type === 'tf' && feeMap()[t.id] ? `<button class="kv kv-btn" data-a="tx" data-id="${feeMap()[t.id].id}"><span>Biaya admin</span><b>${rp(feeMap()[t.id].amount)} · ${esc(feeMap()[t.id].sub)}<i data-lucide="chevron-right"></i></b></button><div class="kv"><span>Keluar dari ${esc(w.name)}</span><b>${rp(t.amount + feeMap()[t.id].amount)}</b></div>` : ''}${t.feeOf && TX().some((x) => x.id === t.feeOf) ? `<button class="kv kv-btn" data-a="tx" data-id="${t.feeOf}"><span>Biaya untuk</span><b>${esc(TX().find((x) => x.id === t.feeOf).note)}<i data-lucide="chevron-right"></i></b></button>` : ''}
-    ${t.split ? `<div class="kv"><span>Bayar bersama</span><b>Bagian Anda dari ${rp(t.split.total)} · ${t.split.n} orang</b></div>` : ''}${t.from ? `<div class="kv"><span>Dikirim oleh</span><b><i data-lucide="send"></i>${esc(t.from)}</b></div>` : ''}
+    ${t.rcpt && TX().filter((x) => x.rcpt === t.rcpt).length > 1 ? `<button class="kv kv-btn" data-a="rcptOpen" data-id="${t.rcpt}"><span>Bagian dari struk</span><b>${esc(t.rcptName || 'Struk')}<i data-lucide="chevron-right"></i></b></button>` : ''}${t.split ? `<div class="kv"><span>Bayar bersama</span><b>Bagian Anda dari ${rp(t.split.total)} · ${t.split.n} orang</b></div>` : ''}${t.from ? `<div class="kv"><span>Dikirim oleh</span><b><i data-lucide="send"></i>${esc(t.from)}</b></div>` : ''}
     <div class="kv"><span>Tanggal</span><b>${longDate(t.date)}</b></div>
     <div class="kv"><span>Buku</span><b>${(BOOKS[t.book] || BOOKS.pribadi).n}</b></div>${t.type === 'out' && !t.debt && !t.inv ? `<button class="kv kv-btn" data-a="txFixed" data-id="${t.id}"><span><i data-lucide="lock"></i>Pengeluaran tetap</span><span class="sw ${t.fixed ? 'on' : ''}" role="switch" aria-checked="${!!t.fixed}"><i></i></span></button>` : ''}${t.items?.length ? `<div class="kv tx-items"><span>Produk</span><div>${t.items.map((it) => `<div><span>${esc(it.name)}${it.qty > 1 && !/\(\d/.test(it.name) ? ` ×${it.qty}` : ''}</span><b>${rp(it.amount)}</b></div>`).join('')}</div></div>` : ''}${rule ? `<div class="kv"><span>Berulang</span><b>${scheduleLabel(rule)} · ${rule.auto ? 'otomatis' : 'tanya dulu'}</b></div>` : ''}</div>
   ${t.type === 'out' && !t.split && !t.adj && !t.feeOf && !t.debt && !t.inv && !t.from ? `<button class="btn2 wide sp-open" data-a="spTx" data-id="${t.id}"><i data-lucide="users"></i>Bagi tagihan (bayar bersama)</button>` : ''}
@@ -1389,6 +1399,106 @@ function cfAddSub() {
   cfDraw(); $('cfSub')?.focus();
 }
 
+/* ================= categories per receipt item ================= */
+let IH = null, IHrev = -1;
+function itemHist() { if (IHrev !== store.rev()) { IH = buildItemHistory(store.data.txs, store.data.settings.histFrom); IHrev = store.rev(); } return IH; }
+const catOk = (c, sb) => !!CATS[c] && !CATS[c].hidden && !CATS[c].inc && !CATS[c].system && CATS[c].subs.includes(sb);
+const fixSub = (c, sb) => (CATS[c] ? CATS[c].subs.find((x) => x.toLowerCase() === String(sb || '').toLowerCase()) : null);
+const reEscape = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+function learnedHit(name) {
+  const t = ' ' + name.toLowerCase() + ' ';
+  for (const k of Object.keys(store.data.learned).sort((a, b) => b.length - a.length)) if (new RegExp('(?<![a-z0-9])' + reEscape(k).replace(/ /g, '\\s+') + '(?![a-z0-9])').test(t)) return store.data.learned[k];
+  return null;
+}
+/** A product's category: what I corrected before > the AI (which reads my history) > my history > the word list > the receipt's. */
+function guessItem(it, fallback) {
+  const l = learnedHit(it.name); if (l && catOk(l.cat, l.sub)) return { cat: l.cat, sub: l.sub, src: 'learn' };
+  const aiSub = it.cat ? fixSub(it.cat, it.sub) : null; if (aiSub && catOk(it.cat, aiSub)) return { cat: it.cat, sub: aiSub, src: 'ai' };
+  const t = ' ' + it.name.toLowerCase() + ' ', h = histHit(t, itemHist()); if (h && catOk(h.cat, h.sub)) return { cat: h.cat, sub: h.sub, src: 'hist' };
+  const b = kwBest(t, KW.filter(([, c]) => !CATS[c]?.hidden && !CATS[c]?.system)); if (b && catOk(b.cat, b.sub)) return { cat: b.cat, sub: b.sub, src: 'dict' };
+  return { cat: fallback.cat, sub: fallback.sub, src: 'rcpt' };
+}
+/** What the AI gets to pick from: my expense categories, and products I have categorised before. */
+function aiCatInfo() {
+  const cats = OUTC().map((k) => `${k}: ${CATS[k].n} — ${CATS[k].subs.join('; ')}`).join('\n');
+  const lrn = Object.entries(store.data.learned).filter(([, v]) => catOk(v.cat, v.sub)).slice(-80).map(([k, v]) => `${k} → ${v.cat}|${v.sub}`);
+  const ih = Object.entries(itemHist()).sort((a, b) => b[1].n - a[1].n).slice(0, 40).map(([k, v]) => `${k} → ${v.cat}|${v.sub}`);
+  return { cats, hints: [...lrn, ...ih].join('\n') };
+}
+const IC = { pick: null, cat: null, sel: new Set() };
+const icItems = (c) => (c === 'st' ? S.struk.form.items : RC.items);
+const icTotal = (c) => (c === 'st' ? S.struk.form.amount : RC.total);
+const icValid = (it) => it.name.trim() && it.amount > 0;
+function icRedraw(c) {
+  if (c === 'st') { const sc = $('cobody').scrollTop; rerenderMode(); $('cobody').scrollTop = sc; }
+  else { sheetKey = 'rcedit'; sRcEdit(true); }
+}
+const icChip = (it, i, c) => `<button class="chip cat sm ic-chip ${IC.pick === i ? 'on' : ''}" style="--c:${CATS[it.cat]?.c || '#94A3B8'}" data-a="icPick" data-c="${c}" data-i="${i}"><i data-lucide="${CATS[it.cat]?.i || 'tag'}"></i>${esc(it.sub || '')}<i data-lucide="chevron-down"></i></button>`;
+function icPicker(c, target) {
+  const lab = target === 'bulk' ? `Kategori untuk ${IC.sel.size} item` : IC.cat ? 'Pilih subkategori' : 'Pilih kategori';
+  return `<div class="picker ic-picker"><span class="pk-lab">${lab}</span>${IC.cat && CATS[IC.cat]
+    ? `<button class="chip cat on" style="--c:${CATS[IC.cat].c}" data-a="icBack" data-c="${c}"><i data-lucide="chevron-left"></i>${esc(CATS[IC.cat].n)}</button>${subsOrd(IC.cat).map((x) => `<button class="chip" data-a="icSub" data-c="${c}" data-v="${esc(x)}">${esc(x)}</button>`).join('')}`
+    : OUTC().map((k) => `<button class="chip cat" style="--c:${CATS[k].c}" data-a="icCat" data-c="${c}" data-v="${k}"><i data-lucide="${CATS[k].i}"></i>${esc(CATS[k].n)}</button>`).join('')}</div>`;
+}
+/** Products grouped by category with each group's share of the total; tick several to move them together. */
+function icHTML(c) {
+  const items = icItems(c), idx = items.map((it, i) => i).filter((i) => icValid(items[i]));
+  const groups = groupByCat(idx.map((i) => ({ ...items[i], ix: i })), icTotal(c));
+  const row = (it) => { const i = it.ix, on = IC.sel.has(i);
+    return `<div class="ic-row ${on ? 'sel' : ''}"><button class="ic-cb ${on ? 'on' : ''}" data-a="icSel" data-c="${c}" data-i="${i}" aria-label="Pilih ${esc(it.name)}">${on ? '<i data-lucide="check"></i>' : ''}</button>
+      <div class="ic-name"><b>${esc(it.name)}</b><small>${it.qty > 1 ? `${it.qty} pcs · ` : ''}${rp(it.amount)}${it.src === 'ai' ? ' · <em>AI</em>' : it.src === 'learn' || it.src === 'hist' ? ' · <em>kebiasaan</em>' : ''}</small></div>${icChip(it, i, c)}</div>${IC.pick === i ? icPicker(c, i) : ''}`; };
+  return `<div class="ic-box">${groups.map((g, gi) => `<div class="ic-grp" style="--c:${CATS[g.cat]?.c || '#94A3B8'};--i:${gi}"><div class="ic-gh"><span class="ic"><i data-lucide="${CATS[g.cat]?.i || 'tag'}"></i></span><span><b>${esc(CATS[g.cat]?.n || g.cat)}</b><small>${esc(g.sub)} · ${g.items.length} item</small></span><em class="m">${rp(g.amount)}</em></div>${g.items.map(row).join('')}</div>`).join('')}
+    ${IC.sel.size ? `<div class="ic-bulk"><span><b>${IC.sel.size}</b> item dipilih</span><button class="btn2" data-a="icPick" data-c="${c}" data-i="bulk"><i data-lucide="tags"></i>Ganti kategori</button><button class="icon-btn" data-a="icClear" data-c="${c}" aria-label="Batal pilih"><i data-lucide="x"></i></button></div>${IC.pick === 'bulk' ? icPicker(c, 'bulk') : ''}` : ''}
+    ${groups.length > 1 ? `<p class="form-note">Disimpan sebagai ${groups.length} catatan, satu per kategori. Pajak, servis, dan diskon dibagi sebanding, jadi totalnya tetap ${rp(icTotal(c))}.</p>` : ''}</div>`;
+}
+function icSet(c, cat, sub) {
+  const items = icItems(c), targets = IC.pick === 'bulk' ? [...IC.sel] : [IC.pick];
+  for (const i of targets) if (items[i]) Object.assign(items[i], { cat, sub, src: 'user' });
+  IC.pick = null; IC.cat = null; if (targets.length > 1) IC.sel.clear();
+  icRedraw(c);
+}
+/** My corrections are remembered per product for next time (and passed to the AI). */
+function icLearn(items) { for (const it of items) if (it.src === 'user') { const k = itemKey(it.name); if (k) store.learn(k, it.cat, it.sub); } }
+/** Save a receipt as one transaction per category, tied together. */
+function saveParts(groups, base) {
+  const id = 'r-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const all = groups.flatMap((g) => g.items), name = receiptTitle(all, base.shop, groups[0].cat) || 'Struk';
+  return groups.map((g) => store.addTx({ date: base.date, type: 'out', cat: g.cat, sub: g.sub, amount: g.amount, wallet: base.wallet, to: null, note: receiptTitle(g.items, base.shop, g.cat) || CATS[g.cat].n, items: g.items.map((x) => ({ name: x.name, amount: x.amount, ...(x.qty > 1 ? { qty: x.qty } : {}) })), rcpt: id, rcptName: name, ...(base.split ? { split: base.split } : {}), ...(base.from ? { from: base.from } : {}) }));
+}
+/* a saved receipt split by category */
+let RC = null;
+function sRcpt(id) {
+  const parts = TX().filter((t) => t.rcpt === id).sort((a, b) => b.amount - a.amount); if (!parts.length) { closeSheet(); return; }
+  const tot = parts.reduce((a, x) => a + x.amount, 0), f = parts[0];
+  sheetKey = 'rcpt';
+  openSheet('Struk', `<div class="rc-top"><b>${esc(f.rcptName || 'Struk')}</b><small>${esc(longDate(f.date))} · ${esc(W(f.wallet).name)}${f.split ? ` · bagian Anda dari ${rp(f.split.total)}` : ''}${f.from ? ` · dari ${esc(f.from)}` : ''}</small><div class="m">−${rp(tot)}</div></div>
+    ${parts.map((p, i) => `<div class="card rc-part" style="--c:${CATS[p.cat]?.c || '#94A3B8'};--i:${i}"><div class="ic-gh"><span class="ic"><i data-lucide="${CATS[p.cat]?.i || 'tag'}"></i></span><span><b>${esc(CATS[p.cat]?.n || p.cat)}</b><small>${esc(p.sub)}</small></span><em class="m">${rp(p.amount)}</em></div>
+      ${(p.items || []).map((x) => `<div class="rc-it"><span>${esc(x.name)}${x.qty > 1 ? ` <em>×${x.qty}</em>` : ''}</span><b class="m">${rp(x.amount)}</b></div>`).join('')}
+      <button class="rc-detail" data-a="tx" data-id="${p.id}">Detail bagian ini<i data-lucide="chevron-right"></i></button></div>`).join('')}
+    <button class="btn2 wide" data-a="rcEdit" data-id="${id}"><i data-lucide="tags"></i>Atur ulang kategori item</button>
+    <button class="danger" data-a="rcDel" data-id="${id}">Hapus struk</button>`);
+}
+function sRcEdit(keep) {
+  if (!keep) {
+    const parts = TX().filter((t) => t.rcpt === RC.id).sort((a, b) => b.amount - a.amount);
+    RC.parts = parts; RC.total = parts.reduce((a, x) => a + x.amount, 0);
+    RC.items = parts.flatMap((p) => (p.items || []).map((x) => ({ ...x, cat: p.cat, sub: p.sub, src: 'saved' })));
+    IC.pick = null; IC.cat = null; IC.sel.clear();
+  }
+  sheetKey = 'rcedit';
+  openSheet('Atur kategori item', `${icHTML('rc')}<button class="primary" data-a="rcSave"><i data-lucide="check"></i>Simpan</button>`);
+}
+function rcSave() {
+  const p0 = RC.parts[0], groups = groupByCat(RC.items.filter(icValid), RC.total);
+  icLearn(RC.items);
+  const keep = { date: p0.date, wallet: p0.wallet, shop: '', split: p0.split, from: p0.from };
+  RC.parts.forEach((p) => store.deleteTx(p.id));
+  let made;
+  if (groups.length > 1) { made = saveParts(groups, keep); for (const t of made) store.updateTx(t.id, { rcptName: p0.rcptName }); }
+  else { const g = groups[0]; made = [store.addTx({ date: p0.date, type: 'out', cat: g.cat, sub: g.sub, amount: RC.total, wallet: p0.wallet, to: null, note: p0.rcptName || receiptTitle(g.items, '', g.cat), items: g.items.map((x) => ({ name: x.name, amount: x.amount, ...(x.qty > 1 ? { qty: x.qty } : {}) })), ...(p0.split ? { split: p0.split } : {}), ...(p0.from ? { from: p0.from } : {}) })]; }
+  markFresh(made); closeSheet(); refresh(); toast(groups.length > 1 ? `Disimpan dalam ${groups.length} kategori` : 'Disimpan dalam 1 kategori');
+}
+
 /* ================= shared bills ("Bayar bersama") ================= */
 const partner = () => store.data.settings.partner || null;
 const pName = () => (partner()?.name || 'Pasangan');
@@ -1398,9 +1508,9 @@ const SP_LBL = { friend: 'Teman', me: 'Saya', shared: 'Bersama', mix: 'Campur' }
 /** Keep the shared-bill lines in step with the receipt's products (edited names and prices, added or removed lines). */
 function spSync(f) {
   const sp = f.split, old = sp.lines || [];
-  sp.lines = f.items.filter((it) => it.name.trim() && it.amount > 0).map((it, i) => {
+  sp.lines = f.items.map((it, ix) => ({ it, ix })).filter(({ it }) => it.name.trim() && it.amount > 0).map(({ it, ix }, i) => {
     const o = old[i] && old[i].amount === it.amount ? old[i] : {};
-    return { name: it.name.trim().replace(/\s*\(\d+\s*pcs\)$/i, ''), amount: it.amount, ...(it.qty ? { qty: it.qty } : {}), ...(it.unit ? { unit: it.unit } : {}), me: Math.min(o.me || 0, pcsOf(it)), pa: Math.min(o.pa || 0, pcsOf(it)), shared: !!o.shared, shMe: !!o.shMe, shPa: !!o.shPa, ...(o.n ? { n: o.n } : {}) };
+    return { ix, ...(f.perItem && it.cat ? { cat: it.cat, sub: it.sub } : {}), name: it.name.trim().replace(/\s*\(\d+\s*pcs\)$/i, ''), amount: it.amount, ...(it.qty ? { qty: it.qty } : {}), ...(it.unit ? { unit: it.unit } : {}), me: Math.min(o.me || 0, pcsOf(it)), pa: Math.min(o.pa || 0, pcsOf(it)), shared: !!o.shared, shMe: !!o.shMe, shPa: !!o.shPa, ...(o.n ? { n: o.n } : {}) };
   });
   return sp;
 }
@@ -1422,8 +1532,8 @@ function spHTML(sp, c) {
     else if (q > 1 && st !== 'friend') ctl = `<div class="sp-ctl"><span>Saya</span><button data-a="spPcs" data-c="${c}" data-i="${i}" data-w="me" data-d="-1" aria-label="Kurangi"><i data-lucide="minus"></i></button><b>${l.me}</b><button data-a="spPcs" data-c="${c}" data-i="${i}" data-w="me" data-d="1" aria-label="Tambah"><i data-lucide="plus"></i></button>${linked ? `<span class="pa">${esc(pName())}</span><button data-a="spPcs" data-c="${c}" data-i="${i}" data-w="pa" data-d="-1" aria-label="Kurangi"><i data-lucide="minus"></i></button><b>${l.pa}</b><button data-a="spPcs" data-c="${c}" data-i="${i}" data-w="pa" data-d="1" aria-label="Tambah"><i data-lucide="plus"></i></button>` : ''}<span>dari ${q} pcs</span></div>`;
     return `<div class="sp-row own-${st}" style="--i:${Math.min(i, 12)}">
       <button class="sp-own" data-a="spOwn" data-c="${c}" data-i="${i}" aria-label="Ganti pemilik ${esc(l.name)}">${esc(lbl)}</button>
-      <div class="sp-main"><b>${esc(l.name)}</b><small>${q > 1 ? `${q} × ${rp(Math.round(u))} = ` : ''}${rp(l.amount)}</small></div>
-      <div class="sp-val">${mine ? `<b class="m">${rp(Math.round(mine))}</b>` : st === 'friend' ? '<b class="dim">–</b>' : ''}${hers ? `<small class="pa">${esc(pName())} ${rp(Math.round(hers))}</small>` : ''}</div>${ctl}</div>`;
+      <div class="sp-main"><b>${esc(l.name)}</b><small>${q > 1 ? `${q} × ${rp(Math.round(u))} = ` : ''}${rp(l.amount)}</small>${c === 'st' && S.struk.form.perItem && l.ix !== undefined ? icChip(S.struk.form.items[l.ix], l.ix, 'st') : ''}</div>
+      <div class="sp-val">${mine ? `<b class="m">${rp(Math.round(mine))}</b>` : st === 'friend' ? '<b class="dim">–</b>' : ''}${hers ? `<small class="pa">${esc(pName())} ${rp(Math.round(hers))}</small>` : ''}</div>${ctl}</div>${c === 'st' && IC.pick === l.ix && l.ix !== undefined ? icPicker('st', l.ix) : ''}`;
   };
   return `<div class="sp-box">
     <div class="sp-people"><span><b>Berapa orang ikut?</b><small>untuk item yang dimakan atau dipakai bersama</small></span><div class="sp-step"><button data-a="spN" data-c="${c}" data-d="-1" aria-label="Kurangi"><i data-lucide="minus"></i></button><b>${sp.n}</b><button data-a="spN" data-c="${c}" data-d="1" aria-label="Tambah"><i data-lucide="plus"></i></button></div></div>
@@ -1449,7 +1559,10 @@ function saveSplitStruk(f, el) {
   if (!r.me && !(r.pa && partner())) { toast('Tandai dulu item milik Anda'); return; }
   // the automatic title describes each person's own products ("Belanja Indomaret · 3 produk")
   const note = f.noteEdited ? (f.note || 'Belanja').trim() : receiptTitle(r.meItems, f.shop, f.cat) || 'Belanja', paNote = f.noteEdited ? note : receiptTitle(r.paItems, f.shop, f.cat) || note;
-  if (r.me) { const t = store.addTx({ date: f.date, type: 'out', cat: f.cat, sub: f.sub, amount: r.me, wallet: f.wallet, to: null, note, items: r.meItems, split: { total: f.amount, n: sp.n } }); markFresh([t]); }
+  if (f.perItem) icLearn(f.items);
+  const meGroups = f.perItem ? groupByCat(r.meItems.map((x) => ({ ...x, cat: x.cat || f.cat, sub: x.sub || f.sub })), r.me) : [];
+  if (r.me && meGroups.length > 1) markFresh(saveParts(meGroups, { date: f.date, wallet: f.wallet, shop: f.shop, split: { total: f.amount, n: sp.n } }));
+  else if (r.me) { const g0 = meGroups[0], t = store.addTx({ date: f.date, type: 'out', cat: g0?.cat || f.cat, sub: g0?.sub || f.sub, amount: r.me, wallet: f.wallet, to: null, note, items: r.meItems.map(({ cat, sub, ...x }) => x), split: { total: f.amount, n: sp.n } }); markFresh([t]); }
   const sent = r.pa && partner() ? sendPart(spPayload({ note: paNote, store: f.shop, date: f.date, cat: f.cat, sub: f.sub }, r, f.amount, sp.n), el) : false;
   S.struk = { phase: 'idle' };
   if (r.me) celebrate(rp(r.me), 'out', el, `Bagian Anda ${rp(r.me)} tersimpan${sent ? ` · ${rp(r.pa)} dikirim ke ${pName()}` : ''}`);
@@ -1582,7 +1695,11 @@ function sInbox() {
   const p = r.payload || {};
   if (!IBX || IBX.id !== r.id) {
     const cat = CATS[p.cat] && !CATS[p.cat].hidden && !CATS[p.cat].inc ? p.cat : (kwHit(p.note || '')?.cat || OUTC()[0]);
-    IBX = { id: r.id, cat, sub: CATS[cat].subs.includes(p.sub) ? p.sub : subsOrd(cat)[0], wallet: defaults().cash };
+    IBX = { id: r.id, cat, sub: CATS[cat].subs.includes(p.sub) ? p.sub : subsOrd(cat)[0], wallet: defaults().cash, gpick: null, gcat: null };
+    const its = (Array.isArray(p.items) ? p.items : []).filter((x) => x && x.name && x.amount > 0);
+    const withCat = its.map((x) => { const sb = fixSub(x.cat, x.sub); return { name: String(x.name), amount: Math.round(x.amount), ...(x.qty > 1 ? { qty: x.qty } : {}), ...(sb && catOk(x.cat, sb) ? { cat: x.cat, sub: sb } : { cat: IBX.cat, sub: IBX.sub }) }; });
+    const g = its.some((x) => x.cat) ? groupByCat(withCat, Math.round(p.amount || 0)) : [];
+    IBX.groups = g.length > 1 ? g : null;
   }
   const items = Array.isArray(p.items) ? p.items : [], from = r.from_name || pName();
   sheetKey = 'inbox';
@@ -1592,8 +1709,10 @@ function sInbox() {
       <p class="ib-note">${esc(p.note || 'Bayar bersama')}${p.total ? ` · bagianmu dari ${rp(p.total)}${p.n ? `, ${p.n} orang` : ''}` : ''}</p>
       ${items.length ? `<div class="ib-items">${items.map((x) => `<div><span>${esc(x.name)}${x.qty > 1 ? ` <em>×${x.qty}</em>` : ''}</span><b class="m">${rp(x.amount || 0)}</b></div>`).join('')}</div>` : ''}</div>
     <span class="lab">Dibayar pakai</span><div class="hscroll">${WL().map((w) => `<button class="chip ${IBX.wallet === w.id ? 'on' : ''}" data-a="ibSet" data-k="wallet" data-v="${w.id}"><i data-lucide="${WALLET_ICON[w.group]}"></i>${esc(w.name)}</button>`).join('')}</div>
-    <span class="lab">Kategori</span><div class="hscroll">${OUTC().map((k) => `<button class="chip cat ${IBX.cat === k ? 'on' : ''}" style="--c:${CATS[k].c}" data-a="ibSet" data-k="cat" data-v="${k}"><i data-lucide="${CATS[k].i}"></i>${esc(CATS[k].n)}</button>`).join('')}</div>
-    <div class="hscroll">${subsOrd(IBX.cat).map((x) => `<button class="chip ${IBX.sub === x ? 'on' : ''}" data-a="ibSet" data-k="sub" data-v="${esc(x)}">${esc(x)}</button>`).join('')}</div>
+    ${IBX.groups ? `<span class="lab">Kategori per item <em class="lab-note">· saran dari ${esc(from)}, ketuk untuk mengganti</em></span>
+      <div class="ib-groups">${IBX.groups.map((g, gi) => `<div class="ib-g" style="--c:${CATS[g.cat]?.c || '#94A3B8'}"><button class="chip cat sm ${IBX.gpick === gi ? 'on' : ''}" style="--c:${CATS[g.cat]?.c || '#94A3B8'}" data-a="ibG" data-g="${gi}"><i data-lucide="${CATS[g.cat]?.i || 'tag'}"></i>${esc(CATS[g.cat]?.n || g.cat)} · ${esc(g.sub)}<i data-lucide="chevron-down"></i></button><small>${esc(g.items.map((x) => x.name).join(', '))}</small><b class="m">${rp(g.amount)}</b></div>${IBX.gpick === gi ? `<div class="picker">${IBX.gcat ? `<button class="chip cat on" style="--c:${CATS[IBX.gcat].c}" data-a="ibGBack"><i data-lucide="chevron-left"></i>${esc(CATS[IBX.gcat].n)}</button>${subsOrd(IBX.gcat).map((x) => `<button class="chip" data-a="ibGSub" data-v="${esc(x)}">${esc(x)}</button>`).join('')}` : OUTC().map((k) => `<button class="chip cat" style="--c:${CATS[k].c}" data-a="ibGCat" data-v="${k}"><i data-lucide="${CATS[k].i}"></i>${esc(CATS[k].n)}</button>`).join('')}</div>` : ''}`).join('')}</div>`
+    : `<span class="lab">Kategori</span><div class="hscroll">${OUTC().map((k) => `<button class="chip cat ${IBX.cat === k ? 'on' : ''}" style="--c:${CATS[k].c}" data-a="ibSet" data-k="cat" data-v="${k}"><i data-lucide="${CATS[k].i}"></i>${esc(CATS[k].n)}</button>`).join('')}</div>
+    <div class="hscroll">${subsOrd(IBX.cat).map((x) => `<button class="chip ${IBX.sub === x ? 'on' : ''}" data-a="ibSet" data-k="sub" data-v="${esc(x)}">${esc(x)}</button>`).join('')}</div>`}
     <button class="primary" data-a="ibAccept"><i data-lucide="check"></i>Terima & catat ${rp(p.amount || 0)}</button>
     <button class="btn2 wide" data-a="ibDecline">Tolak</button>`);
 }
@@ -1602,8 +1721,16 @@ function ibAnswer(status, el) {
   const p = r.payload || {}, from = r.from_name || pName();
   if (status === 'done') {
     const items = (Array.isArray(p.items) ? p.items : []).filter((x) => x && x.name && x.amount > 0).map((x) => ({ name: String(x.name), amount: Math.round(x.amount), ...(x.qty > 1 ? { qty: x.qty } : {}) }));
-    const t = store.addTx({ date: p.date && p.date <= T() ? p.date : T(), type: 'out', cat: IBX.cat, sub: IBX.sub, amount: Math.round(p.amount || 0), wallet: IBX.wallet, to: null, note: p.note || 'Bayar bersama', ...(items.length ? { items } : {}), ...(p.total ? { split: { total: p.total, n: p.n || 2 } } : {}), from });
-    markFresh([t]);
+    const date = p.date && p.date <= T() ? p.date : T(), split = p.total ? { total: p.total, n: p.n || 2 } : null;
+    if (IBX.groups) {
+      // regroup: the partner may have moved two groups into the same category
+      const merged = groupByCat(IBX.groups.flatMap((g) => g.items.map((x) => ({ ...x, cat: g.cat, sub: g.sub }))), Math.round(p.amount || 0));
+      if (merged.length > 1) markFresh(saveParts(merged, { date, wallet: IBX.wallet, shop: p.store || '', ...(split ? { split } : {}), from }));
+      else markFresh([store.addTx({ date, type: 'out', cat: merged[0].cat, sub: merged[0].sub, amount: Math.round(p.amount || 0), wallet: IBX.wallet, to: null, note: p.note || 'Bayar bersama', items, ...(split ? { split } : {}), from })]);
+    } else {
+      const t = store.addTx({ date, type: 'out', cat: IBX.cat, sub: IBX.sub, amount: Math.round(p.amount || 0), wallet: IBX.wallet, to: null, note: p.note || 'Bayar bersama', ...(items.length ? { items } : {}), ...(split ? { split } : {}), from });
+      markFresh([t]);
+    }
   }
   store.setSetting('inboxDone', [...(store.data.settings.inboxDone || []), r.id].slice(-200));
   cloud.answerInbox(r.id, status).catch(() => {});
@@ -2705,6 +2832,25 @@ function onClick(e) {
       break;
     }
     case 'fxDemo': if (location.hostname === 'localhost') window.__dipFx?.[d.v]?.(); break;
+    /* per-item categories */
+    case 'icToggle': { const f = S.struk.form; f.perItem = !f.perItem; IC.pick = null; IC.cat = null; IC.sel.clear(); if (f.perItem) f.items.forEach((it) => { if (!it.cat) Object.assign(it, { cat: f.cat, sub: f.sub, src: 'rcpt' }); }); icRedraw('st'); break; }
+    case 'icPick': { const v = d.i === 'bulk' ? 'bulk' : Number(d.i); IC.pick = IC.pick === v ? null : v; IC.cat = null; icRedraw(d.c); break; }
+    case 'icCat': { if (CATS[d.v].subs.length > 1) { IC.cat = d.v; icRedraw(d.c); } else icSet(d.c, d.v, CATS[d.v].subs[0]); break; }
+    case 'icBack': IC.cat = null; icRedraw(d.c); break;
+    case 'icSub': icSet(d.c, IC.cat, d.v); break;
+    case 'icSel': { const i = Number(d.i); if (IC.sel.has(i)) IC.sel.delete(i); else IC.sel.add(i); if (IC.pick === 'bulk' && !IC.sel.size) IC.pick = null; icRedraw(d.c); break; }
+    case 'icClear': IC.sel.clear(); IC.pick = null; icRedraw(d.c); break;
+    case 'rcptOpen': sRcpt(d.id); break;
+    case 'rcEdit': RC = { id: d.id }; sRcEdit(false); break;
+    case 'rcSave': rcSave(); break;
+    case 'rcDel': {
+      const parts = TX().filter((t) => t.rcpt === d.id);
+      sConfirm('Hapus struk ini?', `${parts.length} catatan (${rp(parts.reduce((a, x) => a + x.amount, 0))}) dihapus.`, 'Hapus', () => {
+        const gone = parts.map((p) => store.deleteTx(p.id)).filter(Boolean); refresh();
+        toast('Struk dihapus', () => { gone.forEach((t) => store.restoreTx(t)); markFresh(gone); refresh(); });
+      });
+      break;
+    }
     /* shared bills */
     case 'spToggle': { const f = S.struk.form; f.split = f.split ? null : newSplit(); spRedraw('st'); break; }
     case 'spN': { const sp = spOf(d.c); sp.n = Math.max(2, Math.min(20, sp.n + Number(d.d))); spRedraw(d.c); break; }
@@ -2748,6 +2894,10 @@ function onClick(e) {
     case 'inboxOpen': if (PT.waiting.length) sInbox(); break;
     case 'ibSet': { IBX[d.k] = d.v; if (d.k === 'cat') IBX.sub = subsOrd(d.v)[0]; sInbox(); break; }
     case 'ibAccept': ibAnswer('done', el); break;
+    case 'ibG': { const g = Number(d.g); IBX.gpick = IBX.gpick === g ? null : g; IBX.gcat = null; sInbox(); break; }
+    case 'ibGCat': { if (CATS[d.v].subs.length > 1) { IBX.gcat = d.v; } else { Object.assign(IBX.groups[IBX.gpick], { cat: d.v, sub: CATS[d.v].subs[0] }); IBX.gpick = null; } sInbox(); break; }
+    case 'ibGBack': IBX.gcat = null; sInbox(); break;
+    case 'ibGSub': Object.assign(IBX.groups[IBX.gpick], { cat: IBX.gcat, sub: d.v }); IBX.gpick = null; IBX.gcat = null; sInbox(); break;
     case 'ibDecline': ibAnswer('declined', el); break;
     /* balance check */
     case 'rcOpen': sRecon({}); break;
@@ -2863,10 +3013,16 @@ function onClick(e) {
     case 'stRetry': S.struk = { phase: 'idle' }; rerenderMode(); break;
     case 'stset': { const f = S.struk.form; f[d.k] = d.v; if (d.k === 'cat') { f.sub = subsOrd(d.v)[0]; refreshNote(f); } const sc = $('cobody').scrollTop; rerenderMode(); $('cobody').scrollTop = sc; break; }
     case 'stiDel': { const f = S.struk.form; f.items.splice(Number(d.i), 1); refreshNote(f); const sc = $('cobody').scrollTop; rerenderMode(); $('cobody').scrollTop = sc; break; }
-    case 'stiAdd': { S.struk.form.items.push({ name: '', amount: 0 }); const sc = $('cobody').scrollTop; rerenderMode(); $('cobody').scrollTop = sc; later(60, () => $('sti-n-' + (S.struk.form.items.length - 1))?.focus()); break; }
+    case 'stiAdd': { S.struk.form.items.push({ name: '', amount: 0, cat: S.struk.form.cat, sub: S.struk.form.sub, src: 'rcpt' }); const sc = $('cobody').scrollTop; rerenderMode(); $('cobody').scrollTop = sc; later(60, () => $('sti-n-' + (S.struk.form.items.length - 1))?.focus()); break; }
     case 'saveStruk': {
       const f = S.struk.form; if (!f.amount) break;
       if (f.split) { saveSplitStruk(f, el); break; }
+      if (f.perItem) {
+        const its = f.items.filter(icValid).map((it) => ({ name: it.name.trim(), amount: it.amount, ...(it.qty > 1 ? { qty: it.qty } : {}), cat: it.cat || f.cat, sub: it.sub || f.sub }));
+        const groups = groupByCat(its, f.amount); icLearn(f.items);
+        if (groups.length > 1) { const made = saveParts(groups, { date: f.date, wallet: f.wallet, shop: f.shop }); markFresh(made); S.struk = { phase: 'idle' }; celebrate(rp(f.amount), 'out', el, `Struk tersimpan dalam ${groups.length} kategori: ${rp(f.amount)}`); break; }
+        if (groups[0]) { f.cat = groups[0].cat; f.sub = groups[0].sub; }
+      }
       const items = f.items.filter((it) => it.name.trim() && it.amount > 0).map((it) => ({ name: it.name.trim(), amount: it.amount, ...(it.qty > 1 ? { qty: it.qty } : {}) }));
       const t = store.addTx({ date: f.date, type: 'out', cat: f.cat, sub: f.sub, amount: f.amount, wallet: f.wallet, to: null, note: (f.note || 'Belanja').trim(), ...(items.length ? { items } : {}) }); markFresh([t]);
       S.struk = { phase: 'idle' }; celebrate(rp(f.amount), 'out', el, `Struk tersimpan: ${rp(f.amount)}`); break;

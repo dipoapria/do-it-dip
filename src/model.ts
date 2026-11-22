@@ -35,6 +35,10 @@ export interface Tx {
   split?: { total: number; n: number };
   /** Sent by my partner from their shared bill (their name). */
   from?: string;
+  /** Part of a receipt split by category: the parts share this id (shown together as one receipt). */
+  rcpt?: string;
+  /** The receipt's title, shown on its one row ("Belanja Indomaret · 5 produk"). */
+  rcptName?: string;
   createdAt: number;
   updatedAt: number;
 }

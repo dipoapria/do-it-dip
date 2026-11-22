@@ -99,3 +99,9 @@ Agar bagian pasangan di struk bersama bisa dikirim langsung ke Do it Dip-nya, ja
 
 Setelah terhubung: saat struk bersama, ketuk label item sampai menjadi nama pasangan. Bagiannya muncul di aplikasi
 pasangan sebagai **Kiriman**, dan pasangan memilih dompet lalu **Terima** atau **Tolak**. Catatan lain tetap terpisah.
+
+## 7. Kategori per item (foto struk)
+
+Fungsi `read-receipt` versi terbaru juga memberi kategori untuk setiap produk, dengan merujuk ke daftar kategori dan
+riwayat Anda. Deploy ulang `read-receipt` dengan isi file terbaru (langkah 3). Sebelum dideploy ulang, kategori per item
+tetap jalan, tapi ditebak di HP dari kamus dan kebiasaan Anda.

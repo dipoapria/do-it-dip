@@ -11,6 +11,7 @@ import { BOOKS } from './model.ts';
 import { gridHTML, monthSums, pickerHTML, sumsHTML } from './calview.ts';
 import { longDate } from './format.ts';
 import { feeSummary, foldFees } from './fees.ts';
+import { foldReceipts } from './itemcats.ts';
 import { reconDue } from './recon.ts';
 
 type Api = { icons: () => void; onPhoneShown: () => void; exportExcel: (p: { from: string; to: string; label: string; file: string }) => void; recon: () => void };
@@ -160,6 +161,7 @@ function dayPanel(mk) {
   const inc = list.filter((t) => t.type === 'in').reduce((s, t) => s + t.amount, 0), out = list.filter((t) => t.type === 'out').reduce((s, t) => s + t.amount, 0);
   const fx = list.filter((t) => t.type === 'out' && t.fixed).reduce((s, t) => s + t.amount, 0);
   const row = (t) => {
+    if (t.parts) return `<div class="dk-dd-row"><span class="ic" style="--c:${CATS[t.parts[0].cat]?.c || '#94A3B8'}"><i data-lucide="receipt"></i></span><div><b>${esc(t.rcptName || 'Struk')}</b><small>${t.parts.length} kategori · ${esc(t.parts.map((x) => CATS[x.cat]?.n || x.cat).join(', '))}</small></div><em class="m out">−${rp(t.parts.reduce((a, x) => a + x.amount, 0))}</em></div>`;
     const c = t.type === 'tf' ? { n: 'Transfer', c: '#94A3B8', i: 'arrow-left-right' } : CATS[t.cat] || CATS.lain;
     const sign = t.type === 'in' ? '+' : t.type === 'out' ? '−' : '';
     return `<div class="dk-dd-row"><span class="ic" style="--c:${c.c}"><i data-lucide="${c.i}"></i></span><div><b>${t.fixed ? '<i data-lucide="lock" class="fx-ic"></i>' : ''}${esc(t.note)}</b><small>${esc(t.type === 'tf' ? 'Transfer' : `${c.n} · ${t.sub}`)}${t.type === 'tf' && list.find((x) => x.feeOf === t.id) ? ` · + admin ${rp(list.find((x) => x.feeOf === t.id).amount)}` : ''}</small></div><em class="m ${t.type}">${sign}${rp(t.amount)}</em></div>`;
@@ -167,7 +169,7 @@ function dayPanel(mk) {
   return `<div class="dk-card-h"><h3>${esc(dayLabel(d, T()))}</h3><span class="dk-sub">${esc(longDate(d))}</span></div>
     <div class="dk-dd-sum"><div><small>Masuk</small><b class="m in">${rp(inc)}</b></div><div><small>Keluar</small><b class="m out">${rp(out)}</b></div><div><small>Transaksi</small><b>${list.length}</b></div></div>
     ${fx ? `<p class="dd-fx"><i data-lucide="lock"></i>Tetap ${rp(fx)} · harian ${rp(out - fx)}</p>` : ''}
-    ${list.length ? `<div class="dk-dd-list">${foldFees(list).map(row).join('')}</div>` : '<div class="dk-empty">Tidak ada transaksi pada hari ini.</div>'}`;
+    ${list.length ? `<div class="dk-dd-list">${foldReceipts(foldFees(list)).map(row).join('')}</div>` : '<div class="dk-empty">Tidak ada transaksi pada hari ini.</div>'}`;
 }
 function walletsStrip() {
   const ws = WL().map((w) => ({ w, b: balance(ALL(), w) })), tot = ws.reduce((s, x) => s + Math.max(0, x.b), 0) || 1;

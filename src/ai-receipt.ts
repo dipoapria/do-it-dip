@@ -5,7 +5,7 @@ import { addDays } from './format.ts';
 import { STORES, type Confidence, type ReceiptResult } from './receipt.ts';
 
 export interface AiReceipt {
-  items?: { name?: string; printed?: string; qty?: number | null; unit?: number | null; price?: number }[];
+  items?: { name?: string; printed?: string; qty?: number | null; unit?: number | null; price?: number; cat?: string | null; sub?: string | null }[];
   discount?: number | null; fees?: number | null; total?: number | null;
   date?: string | null; payment?: string | null; store?: string | null;
 }
@@ -27,7 +27,8 @@ export function fromAi(a: AiReceipt, today: string, model = ''): ReceiptResult &
       // the line total, also when only "5 x 3.500" came back as the price of one piece
       if (qty && Number.isInteger(qty) && u > 0 && amount === u) amount = u * qty;
       const unit = qty && Number.isInteger(qty) ? (u > 0 && Math.abs(u * qty - amount) <= Math.max(2, amount * 0.02) ? u : Math.round(amount / qty)) : undefined;
-      return { name, amount, qty, ...(unit ? { unit } : {}), printed: String(it.printed ?? '').trim() };
+      const cs = typeof it.cat === 'string' && typeof it.sub === 'string' && it.cat && it.sub ? { cat: it.cat.trim(), sub: it.sub.trim() } : {};
+      return { name, amount, qty, ...(unit ? { unit } : {}), ...cs, printed: String(it.printed ?? '').trim() };
     })
     .filter((it) => it.name && it.amount > 0)
     .map(({ printed, ...it }) => (printed && printed !== it.name ? { ...it, printed } : it))

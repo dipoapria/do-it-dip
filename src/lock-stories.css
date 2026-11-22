@@ -666,3 +666,45 @@ body.veil::after{content:"";position:fixed;inset:0;z-index:1999;background:var(-
 .inv-heart svg.lucide{width:46px;height:46px;fill:#F472B6;stroke:#fff;filter:drop-shadow(0 0 14px #F472B6)}
 @keyframes heartPop{0%{transform:scale(0)}60%{transform:scale(1.6)}100%{transform:scale(1)}}
 @media (prefers-reduced-motion:reduce){.sky *{animation-duration:.01ms!important}}
+
+/* ---------- categories per receipt item ---------- */
+.ic-toggle .ic{--c:#8B5CF6}
+.ic-toggle.on{background:color-mix(in srgb,#8B5CF6 11%,var(--surface));box-shadow:inset 0 0 0 1.5px color-mix(in srgb,#8B5CF6 45%,transparent)}
+.ic-box{display:flex;flex-direction:column;gap:10px;margin-bottom:12px}
+.ic-grp{border-radius:20px;padding:6px 10px 8px;background:color-mix(in srgb,var(--c) 7%,var(--surface));box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--c) 30%,var(--line));animation:rcPop .4s var(--spring) both;animation-delay:calc(var(--i)*50ms)}
+.ic-gh{display:flex;align-items:center;gap:10px;padding:6px 2px 8px}
+.ic-gh .ic{flex:none;width:34px;height:34px}
+.ic-gh span:not(.ic){flex:1;min-width:0}
+.ic-gh b{display:block;font-size:14px}
+.ic-gh small{display:block;color:var(--ink-3);font-size:12px;font-weight:600}
+.ic-gh em{font-style:normal;font-weight:800;font-size:15px}
+.ic-row{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;padding:8px 4px;border-top:1px solid var(--line);border-radius:12px;transition:background .2s}
+.ic-row.sel{background:color-mix(in srgb,var(--brand) 12%,transparent)}
+.ic-cb{width:24px;height:24px;border-radius:8px;display:grid;place-items:center;box-shadow:inset 0 0 0 2px var(--line);color:#fff;transition:background .2s,box-shadow .2s}
+.ic-cb.on{background:var(--brand);box-shadow:none}
+.ic-cb svg.lucide{width:15px;height:15px}
+.ic-name{min-width:0}
+.ic-name b{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;font-size:14px;font-weight:700;line-height:1.25;overflow:hidden}
+.ic-name small{color:var(--ink-3);font-size:12px;font-weight:600}
+.ic-name em{font-style:normal;color:#8B5CF6;font-weight:800}
+.chip.ic-chip{max-width:150px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sp-main .chip.ic-chip{margin-top:6px;max-width:100%}
+.ic-picker{margin:4px 0 6px}
+.ic-bulk{position:sticky;bottom:8px;z-index:5;display:flex;align-items:center;gap:8px;padding:10px 12px;border-radius:18px;background:var(--surface);box-shadow:0 12px 30px -12px rgba(0,0,0,.45),inset 0 0 0 1.5px var(--brand);animation:rcPop .35s var(--spring)}
+.ic-bulk span{flex:1;font-size:14px}
+.ic-bulk .btn2{padding:8px 12px}
+.rc-row .rc-stack{background:linear-gradient(135deg,var(--c),var(--c2))}
+.rc-top{text-align:center;margin:-4px 0 14px}
+.rc-top b{display:block;font-size:17px}
+.rc-top small{color:var(--ink-3);font-weight:600}
+.rc-top .m{font:800 30px var(--f-display);margin-top:6px}
+.rc-part{padding:8px 14px;margin-bottom:10px;box-shadow:inset 4px 0 0 var(--c)}
+.rc-it{display:flex;justify-content:space-between;gap:10px;padding:5px 0;font-size:13px;border-top:1px solid var(--line)}
+.rc-it em{font-style:normal;color:var(--ink-3)}
+.rc-detail{display:flex;align-items:center;gap:4px;margin:6px 0 2px;font-size:12px;font-weight:800;color:var(--brand)}
+.rc-detail svg.lucide{width:14px;height:14px}
+.ib-groups{display:grid;gap:8px;margin-bottom:6px}
+.ib-g{display:grid;grid-template-columns:1fr auto;gap:4px 10px;align-items:center;padding:10px 12px;border-radius:16px;background:var(--surface);box-shadow:inset 4px 0 0 var(--c)}
+.ib-g small{grid-column:1/2;color:var(--ink-3);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ib-g b{grid-row:1/3;grid-column:2}
+.ib-g .chip{justify-self:start}

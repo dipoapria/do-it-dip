@@ -109,9 +109,9 @@ export async function push(backup: Backup): Promise<string> {
 }
 
 /** Read a receipt photo with Gemini through the read-receipt Edge Function (the API key stays on the server). */
-export async function readReceipt(image: string, mime: string, model?: string): Promise<{ model: string; receipt: unknown; usage: unknown }> {
+export async function readReceipt(image: string, mime: string, model?: string, extra?: { cats?: string; hints?: string }): Promise<{ model: string; receipt: unknown; usage: unknown }> {
   const c = await sb();
-  const { data, error } = await c.functions.invoke('read-receipt', { body: { image, mime, ...(model ? { model } : {}) } });
+  const { data, error } = await c.functions.invoke('read-receipt', { body: { image, mime, ...(model ? { model } : {}), ...(extra || {}) } });
   if (error) {
     // the function's own message (quota, missing key) is in the response body
     let msg = error.message;

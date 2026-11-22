@@ -56,7 +56,7 @@ Rupiah amounts: "21,500", "21.500" and "Rp 21.500,00" all mean 21500. Read digit
 const SCHEMA = {
   type: 'OBJECT',
   properties: {
-    items: { type: 'ARRAY', items: { type: 'OBJECT', properties: { printed: { type: 'STRING' }, name: { type: 'STRING' }, qty: { type: 'NUMBER', nullable: true }, unit: { type: 'INTEGER', nullable: true }, price: { type: 'INTEGER' } }, required: ['name', 'price'], propertyOrdering: ['printed', 'name', 'qty', 'unit', 'price'] } },
+    items: { type: 'ARRAY', items: { type: 'OBJECT', properties: { printed: { type: 'STRING' }, name: { type: 'STRING' }, qty: { type: 'NUMBER', nullable: true }, unit: { type: 'INTEGER', nullable: true }, price: { type: 'INTEGER' }, cat: { type: 'STRING', nullable: true }, sub: { type: 'STRING', nullable: true } }, required: ['name', 'price'], propertyOrdering: ['printed', 'name', 'qty', 'unit', 'price', 'cat', 'sub'] } },
     discount: { type: 'INTEGER' },
     fees: { type: 'INTEGER' },
     total: { type: 'INTEGER', nullable: true },
@@ -67,9 +67,26 @@ const SCHEMA = {
   required: ['items', 'discount', 'fees', 'total'],
 };
 
-async function ask(model: string, key: string, image: string, mime: string, thinking: boolean) {
+/** The person's categories and past choices, so each product gets the category they would pick themselves. */
+function categoryPart(cats: string, hints: string): string {
+  if (!cats) return '';
+  return `
+
+Also give every item a category from the person's own list below:
+- cat: the category KEY (the text before the colon), sub: one of that category's subcategories, written exactly as listed.
+- First look at the person's HISTORY: when the same or a very similar product appears there, use that category and
+  subcategory. Otherwise pick what fits the product itself (snacks, medicine, toiletries, groceries, drinks...),
+  not the kind of shop.
+- null for both when nothing fits.
+CATEGORIES (key: name — subcategories):
+${cats}
+HISTORY (product → key|subcategory):
+${hints || '(none yet)'}`;
+}
+
+async function ask(model: string, key: string, image: string, mime: string, thinking: boolean, extra = '') {
   const body = {
-    contents: [{ role: 'user', parts: [{ inline_data: { mime_type: mime, data: image } }, { text: PROMPT }] }],
+    contents: [{ role: 'user', parts: [{ inline_data: { mime_type: mime, data: image } }, { text: PROMPT + extra }] }],
     generationConfig: {
       temperature: 0,
       responseMimeType: 'application/json',
@@ -112,16 +129,17 @@ Deno.serve(async (req) => {
   if (req.method !== 'POST') return json({ error: 'method' }, 405);
   const key = keyFor(emailOf(req));
   if (!key) return json({ error: 'Akun ini belum punya kunci Gemini sendiri (lihat supabase/SETUP-PASANGAN.md).', code: 'no_key' }, 403);
-  let input: { image?: string; mime?: string; model?: string };
+  let input: { image?: string; mime?: string; model?: string; cats?: string; hints?: string };
   try { input = await req.json(); } catch { return json({ error: 'Permintaan tidak valid.' }, 400); }
   const image = input.image ?? '', mime = input.mime ?? 'image/jpeg';
   if (!image || image.length > 7_000_000 || !/^image\/(jpeg|png|webp)$/.test(mime)) return json({ error: 'Foto tidak valid atau terlalu besar.' }, 400);
+  const extra = categoryPart(String(input.cats || '').slice(0, 6000), String(input.hints || '').slice(0, 6000));
   const order = input.model && MODELS.includes(input.model) ? [input.model, ...MODELS.filter((m) => m !== input.model)] : MODELS;
 
   let last = '';
   for (const model of order) {
-    let res = await ask(model, key, image, mime, true);
-    if (res.status === 400) { const t = await res.text(); if (/thinking/i.test(t)) res = await ask(model, key, image, mime, false); else { last = t; break; } }
+    let res = await ask(model, key, image, mime, true, extra);
+    if (res.status === 400) { const t = await res.text(); if (/thinking/i.test(t)) res = await ask(model, key, image, mime, false, extra); else { last = t; break; } }
     if (res.status === 429 || res.status >= 500) { last = `${model}: ${res.status}`; continue; } // quota or busy → next model
     if (!res.ok) { last = await res.text(); break; }
     const data = await res.json();
