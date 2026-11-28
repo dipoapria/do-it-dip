@@ -512,6 +512,7 @@ function vLainnya() {
   <div class="card"><h4>Profil</h4>
     <button class="set-row" data-a="rename"><span class="ic" style="--c:#13A894"><i data-lucide="user"></i></span><div class="t"><b>${esc(set.name || 'Tanpa nama')}</b><small>Nama sapaan di Beranda · ketuk untuk mengubah</small></div><i data-lucide="chevron-right"></i></button></div>
   ${rulesCardHTML()}
+  <div class="card" id="rfCard">${refreshInner()}</div>
   ${cloudCardHTML()}
   <div class="card pt-card" id="ptCard">${ptInner()}</div>
   ${location.hostname === 'localhost' ? `<div class="card" id="fxDemo"><h4>Demo animasi <span class="status warn">hanya di server uji</span></h4><div class="btn-row"><button class="btn2" data-a="fxDemo" data-v="in"><i data-lucide="mail"></i>Terima</button><button class="btn2" data-a="fxDemo" data-v="out"><i data-lucide="send"></i>Kirim</button><button class="btn2" data-a="fxDemo" data-v="invite"><i data-lucide="heart"></i>Undangan</button></div></div>` : ''}
@@ -1397,6 +1398,47 @@ function cfAddSub() {
   if (CF.subs.some((s) => s.toLowerCase() === v.toLowerCase())) return toast('Subkategori itu sudah ada');
   if (CF.k) { store.addSub(CF.k, v); CF.subs = CATS[CF.k].subs.slice(); afterCatChange(); toast(`Subkategori “${v}” ditambahkan`); } else CF.subs.push(v);
   cfDraw(); $('cfSub')?.focus();
+}
+
+/* ================= refresh & updates ================= */
+/** Build time in local time: "28 Nov 2026 16.25". */
+function buildLabel() { try { const d = new Date(__BUILD__); return `${d.getDate()} ${BLN[d.getMonth()]} ${d.getFullYear()} ${pad(d.getHours())}.${pad(d.getMinutes())}`; } catch { return '-'; } }
+function refreshInner() {
+  return `<h4>Segarkan aplikasi <span class="status ${S.updateReady ? 'warn' : 'good'}">${S.updateReady ? 'Versi baru siap' : 'Terbaru'}</span></h4>
+    <p class="about" style="margin:0 0 10px">${S.updateReady ? 'Ada versi baru Do it Dip. Ketuk Perbarui; aplikasi dimuat ulang sebentar tanpa meminta PIN lagi.' : 'Sinkronkan cadangan online, cek kiriman pasangan, perbarui harga saham, dan periksa versi terbaru, tanpa menutup aplikasi.'}</p>
+    <button class="btn2 wide ${S.updateReady ? 'primaryish' : ''}" data-a="appRefresh" id="rfBtn"><i data-lucide="${S.updateReady ? 'sparkles' : 'refresh-cw'}"></i>${S.updateReady ? 'Perbarui sekarang' : 'Segarkan sekarang'}</button>
+    <p class="form-note" style="margin:8px 2px 0">Versi ${esc(buildLabel())}${S.rfAt ? ` · disegarkan ${esc(dayLabel(dateOf(S.rfAt), T()).toLowerCase())} ${new Date(S.rfAt).toTimeString().slice(0, 5)}` : ''}</p>`;
+}
+function applyUpdate() {
+  try { sessionStorage.setItem('dip-reload', String(Date.now())); } catch { /* storage blocked */ }
+  const go = window.__dipUpdate; if (go) go(); else location.reload();
+  setTimeout(() => location.reload(), 4000); // in case the new version does not take over by itself
+}
+/** A new version: a small bar above the tab bar, never in the middle of recording or a sheet. */
+function showUpdateBar(n = 0) {
+  if (!S.updateReady || S.updLater || document.querySelector('.upd-bar')) return;
+  if (!$('composer').hidden || $('layer').innerHTML || (document.getElementById('lock') && !document.getElementById('lock').hidden)) { if (n < 60) setTimeout(() => showUpdateBar(n + 1), 3000); return; }
+  const b = document.createElement('div'); b.className = 'upd-bar';
+  b.innerHTML = '<span class="ic"><i data-lucide="sparkles"></i></span><span><b>Versi baru tersedia</b><small>Fitur dan perbaikan terbaru</small></span><button class="upd-go" data-a="appUpdate">Perbarui</button><button class="icon-btn" data-a="updLater" aria-label="Nanti saja"><i data-lucide="x"></i></button>';
+  app().appendChild(b); icons();
+}
+async function waitInstalled(reg, ms) {
+  const w = reg.installing; if (!w) return;
+  await new Promise((res) => { const t = setTimeout(res, ms); w.addEventListener('statechange', () => { if (w.state === 'installed' || w.state === 'redundant') { clearTimeout(t); res(); } }); });
+}
+/** "Segarkan sekarang": data from the cloud, partner inbox, share prices, and a check for a new version. */
+async function appRefresh(btn) {
+  if (S.updateReady) { applyUpdate(); return; }
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i data-lucide="refresh-cw" class="spin"></i>Menyegarkan…'; icons(); }
+  const reg = window.__dipSW;
+  if (reg && navigator.onLine) { try { await reg.update(); await waitInstalled(reg, 8000); } catch { /* offline or blocked */ } }
+  if (reg?.waiting) { S.updateReady = true; applyUpdate(); return; }
+  const jobs = [partnerPoll(true), refreshPrices(false)];
+  if (cloudOn()) jobs.push(syncNow(false)); else runRecurring();
+  await Promise.allSettled(jobs);
+  S.rfAt = Date.now(); refresh();
+  const c = $('rfCard'); if (c) { c.innerHTML = refreshInner(); icons(); }
+  toast(navigator.onLine ? 'Sudah versi terbaru · data disegarkan' : 'Sedang offline · data di HP ini sudah yang terbaru');
 }
 
 /* ================= categories per receipt item ================= */
@@ -2679,6 +2721,7 @@ function bindEvents() {
   ['pointerup', 'pointercancel'].forEach((ev) => document.addEventListener(ev, () => { clearTimeout(chipT); chipT = null; }));
   window.addEventListener('resize', () => { tabCenters = []; moveInd(S.pos); placePill($('themeSeg')); });
   window.addEventListener('dip-error', (e) => toast(e.detail));
+  window.addEventListener('dip-update', () => { S.updateReady = true; showUpdateBar(); const c = $('rfCard'); if (c) { c.innerHTML = refreshInner(); icons(); } });
   // A new day may have started while the app sat in the background.
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) { if (cloudOn() && store.data.settings.cloudDirty) pushNow(); return; }
@@ -2831,6 +2874,9 @@ function onClick(e) {
       });
       break;
     }
+    case 'appRefresh': appRefresh(el); break;
+    case 'appUpdate': applyUpdate(); break;
+    case 'updLater': S.updLater = true; document.querySelector('.upd-bar')?.remove(); break;
     case 'fxDemo': if (location.hostname === 'localhost') window.__dipFx?.[d.v]?.(); break;
     /* per-item categories */
     case 'icToggle': { const f = S.struk.form; f.perItem = !f.perItem; IC.pick = null; IC.cat = null; IC.sel.clear(); if (f.perItem) f.items.forEach((it) => { if (!it.cat) Object.assign(it, { cat: f.cat, sub: f.sub, src: 'rcpt' }); }); icRedraw('st'); break; }
@@ -3227,7 +3273,10 @@ export async function start() {
   initDesk({ icons, onPhoneShown, exportExcel, recon: () => { const k = reconDue(new Date(), store.data.settings); S.rcOffered = true; sRecon(k ? { weekly: true, week: k } : {}); } });
   initLock({ icons, toast, onWipe: async () => { await store.wipe(); afterDataReset(); } });
   initStories({ icons, toast, goRekap: () => goTab(1) });
-  if (store.data.settings.onboarded) lockNow(); // lock screen first, before anything is visible
+  // lock screen first, before anything is visible; not again right after "Perbarui" reloaded the app
+  let justUpdated = false; try { justUpdated = Date.now() - Number(sessionStorage.getItem('dip-reload') || 0) < 30000; sessionStorage.removeItem('dip-reload'); } catch { /* storage blocked */ }
+  if (store.data.settings.onboarded && !justUpdated) lockNow();
+  if (justUpdated) later(1200, () => toast('Do it Dip sudah diperbarui'));
   store.onChange(markDirty);
   if (store.data.settings.onboarded && cloudOn()) setTimeout(() => syncNow(false), 800);
   else if (store.data.settings.onboarded) setTimeout(runRecurring, 600);

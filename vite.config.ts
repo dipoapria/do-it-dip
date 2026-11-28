@@ -4,9 +4,12 @@ import { VitePWA } from 'vite-plugin-pwa';
 // base './' keeps the build working on GitHub Pages (sub-path) and Cloudflare Pages (root) alike.
 export default defineConfig({
   base: './',
+  // shown in Lainnya so it is easy to see which version is running
+  define: { __BUILD__: JSON.stringify(new Date().toISOString()) },
   plugins: [
     VitePWA({
-      registerType: 'autoUpdate',
+      // a new version waits until the person taps "Perbarui" (no reload in the middle of recording something)
+      registerType: 'prompt',
       includeAssets: ['favicon.png', 'icons/apple-touch-icon.png', 'icons/logo-152.png'],
       manifest: {
         name: 'Do it Dip',

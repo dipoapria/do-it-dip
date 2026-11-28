@@ -6,7 +6,9 @@ import { bioAvailable, bioRegister, bioVerify, hashPin, newSalt, sameHash } from
 
 let api = null;
 const L = { mode: null, entry: '', first: '', len: 4, onOk: null, attempts: 0, until: 0, title: '', forgot: false, offerBio: false };
-let el = null, hiddenAt = 0, tick = null;
+// hiddenAt starts at load, not 0: the first "visible" event iOS sends after the Face ID sheet would otherwise look like
+// the app had been in the background since 1970 and lock it again. unlockedAt gives a short grace after unlocking.
+let el = null, hiddenAt = Date.now(), unlockedAt = 0, tick = null;
 const S = () => store.data.settings;
 export const pinOn = () => !!S().pinHash;
 
@@ -55,7 +57,7 @@ async function tryBio(auto) {
 }
 /** Close the lock screen; `then` runs only after it is fully gone (so it may open the lock screen again). */
 function hide(then = null) {
-  const done = () => { el.hidden = true; document.body.classList.remove('locked'); ['app', 'desk'].forEach((id) => document.getElementById(id)?.removeAttribute('inert')); if (then) then(); };
+  const done = () => { el.hidden = true; unlockedAt = Date.now(); document.body.classList.remove('locked'); ['app', 'desk'].forEach((id) => document.getElementById(id)?.removeAttribute('inert')); if (then) then(); };
   if (matchMedia('(prefers-reduced-motion: reduce)').matches) return done();
   const a = el.animate([{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'scale(1.06)' }], { duration: 260, easing: 'ease-in', fill: 'forwards' });
   let ran = false; const go = () => { if (ran) return; ran = true; done(); a.cancel(); }; a.onfinish = go; setTimeout(go, 400);
@@ -117,9 +119,10 @@ export function initLock(a) {
   // Cover the app as soon as it goes to the background (the iOS app switcher shows a snapshot), lock again after a while.
   document.addEventListener('visibilitychange', () => {
     if (!pinOn()) return;
-    if (document.hidden) { hiddenAt = Date.now(); document.body.classList.add('veil'); return; }
+    // the Face ID sheet itself hides the page for a moment: that is not leaving the app
+    if (document.hidden) { if (!bioBusy) hiddenAt = Date.now(); document.body.classList.add('veil'); return; }
     document.body.classList.remove('veil');
-    if (el.hidden && Date.now() - hiddenAt >= (S().lockAfter ?? 60) * 1000) show('unlock');
+    if (el.hidden && !bioBusy && Date.now() - unlockedAt > 4000 && Date.now() - hiddenAt >= (S().lockAfter ?? 60) * 1000) show('unlock');
   });
 }
 export function lockNow() { if (pinOn()) show('unlock'); }

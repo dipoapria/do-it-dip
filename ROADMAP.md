@@ -64,6 +64,7 @@ Perbarui file ini setiap ada fitur yang selesai, supaya tidak ada yang terlewat.
 | Sembunyikan nominal (blur) & intip saldo kartu | mockup v2 | ✅ |
 | Tema terang/gelap dengan efek menyebar | mockup v2 | ✅ |
 | **Kunci PIN saat aplikasi dibuka** | rencana awal (Tahap 1), mockup v1 & v2 | ✅ PIN 4/6 digit (hash PBKDF2), Face ID/Touch ID, kunci otomatis (langsung/1/5 menit), tampilan tertutup di pengalih aplikasi |
+| **Segarkan aplikasi & pembaruan dengan persetujuan** | permintaan | ✅ Lainnya → *Segarkan aplikasi*: sinkron cadangan online, cek kiriman pasangan, harga saham, dan versi terbaru tanpa menutup aplikasi; kalau ada versi baru langsung dimuat ulang tanpa PIN. Versi baru tidak lagi memuat ulang sendiri: muncul bar *Versi baru tersedia → Perbarui* (tidak saat sedang mencatat). Versi build tampil di kartu. Perbaikan: Face ID tidak lagi diminta dua kali saat aplikasi baru dibuka |
 | **Cadangan online otomatis + sinkron HP ↔ laptop** | permintaan awal | ✅ Supabase (proyek milik pengguna), masuk email + kata sandi, unggah otomatis setelah perubahan, ambil otomatis saat dibuka, pilihan saat dua perangkat sama-sama berubah, RLS per akun |
 | **Ekspor ke Excel** | mockup v1 & v2 | ✅ .xlsx berisi Ringkasan, Transaksi, Per kategori; periode bulan / tahun / semua (Rekap & Lainnya di HP, tombol Excel di laptop mengikuti periode yang tampil) |
 
