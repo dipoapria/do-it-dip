@@ -1852,7 +1852,7 @@ function planeOut(el, caption) {
 function inviteFx(l, done) {
   if (reduced()) { done(); return; }
   const s = skyScene('inv', 2700, done), { W, H } = s, who = l.from_name || l.from_email;
-  s.stage.innerHTML = `<div class="inv-row" style="top:${H * 0.42}px"><span class="pt-av inv-l">${initial(who)}</span><span class="inv-heart"><i data-lucide="heart"></i></span><span class="pt-av pa inv-r">${initial(store.data.settings.name)}</span></div>`;
+  s.stage.innerHTML = `<div class="pinv-row" style="top:${H * 0.42}px"><span class="pt-av pinv-l">${initial(who)}</span><span class="pinv-heart"><i data-lucide="heart"></i></span><span class="pt-av pa pinv-r">${initial(store.data.settings.name)}</span></div>`;
   s.cap.innerHTML = `<b>${esc(who)}</b> mengajak terhubung`; icons();
   s.at(1000, () => { buzz([15, 60, 25]); sparkle(s.sc, W / 2, H * 0.42, 34, ['#F9A8D4', '#F472B6', '#fff', '#FDE68A']); });
 }
